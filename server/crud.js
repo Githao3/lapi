@@ -69,6 +69,16 @@ export function attachCrud(app) {
     res.json({ ok: true });
   });
 
+  app.post('/api/channels/:id/toggle', (req, res) => {
+    const c = getChannel(Number(req.params.id));
+    if (!c) {
+      res.status(404).json({ ok: false, error: 'channel not found' });
+      return;
+    }
+    updateChannel(c.id, { ...c, enabled: !c.enabled });
+    res.json({ ok: true, enabled: !c.enabled });
+  });
+
   app.delete('/api/channels/:id', (req, res) => {
     deleteChannel(Number(req.params.id));
     res.json({ ok: true });
@@ -116,10 +126,14 @@ export function attachCrud(app) {
   }
 
   async function fetchChannelModels(c, res) {
+    const r = await fetchModelsList(c);
+    res.json(r);
+  }
+
+  async function fetchModelsList(c) {
     const base = String(c.base_url ?? '').trim();
     if (!base) {
-      res.json({ models: [], error: 'base_url 为空' });
-      return;
+      return { models: [], error: 'base_url 为空' };
     }
     const candidates = buildModelsUrlCandidates(base);
     const headers = {};
@@ -164,7 +178,7 @@ export function attachCrud(app) {
         break;
       }
     }
-    res.json({ models, error });
+    return { models, error };
   }
 
   app.post('/api/channels/:id/fetch-models', async (req, res) => {
@@ -235,6 +249,23 @@ export function attachCrud(app) {
     res.json({ ok: true });
   });
 
+  app.get('/api/models-catalog', (req, res) => {
+    const map = new Map();
+    for (const c of listChannels()) {
+      const declared = String(c.models ?? '').split(',').map((s) => s.trim()).filter((s) => s && s !== '*');
+      for (const m of declared) {
+        if (!map.has(m)) map.set(m, { model: m, channels: [] });
+        map.get(m).channels.push({ name: c.name, via: 'declared', enabled: !!c.enabled });
+      }
+      for (const k of Object.keys(c.model_mapping ?? {})) {
+        if (!k) continue;
+        if (!map.has(k)) map.set(k, { model: k, channels: [] });
+        const e = map.get(k);
+        if (!e.channels.some((ch) => ch.name === c.name)) e.channels.push({ name: c.name, via: 'alias', enabled: !!c.enabled });
+      }
+    }
+    res.json([...map.values()].sort((a, b) => a.model.localeCompare(b.model)));
+  });
   app.get('/api/logs', (req, res) => {
     res.json(listLogs(null, Number(req.query.limit ?? 100)));
   });

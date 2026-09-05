@@ -175,6 +175,15 @@ export default function Channels() {
     }
   };
 
+  const toggleEnabled = async (c: Channel) => {
+    try {
+      await api.toggleChannel(c.id!);
+      await reload();
+    } catch (e) {
+      alert('切换失败：' + String(e));
+    }
+  };
+
   const set = (patch: Partial<Channel>) => setEditing((e) => (e ? { ...e, ...patch } : e));
 
   const fmt = !editing ? 'messages' : (editing.protocol === 'anthropic' ? 'messages' : (editing.openai_endpoint === 'responses' ? 'responses' : 'chat'));
@@ -214,6 +223,14 @@ export default function Channels() {
                   <div className="truncate font-mono text-xs text-zinc-500">{c.base_url}</div>
                 </div>
                 <div className="hidden max-w-xs truncate font-mono text-xs text-zinc-500 sm:block">{c.models}</div>
+                <button
+                  onClick={() => toggleEnabled(c)}
+                  title="点击启用/停用此渠道"
+                  className={'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ' + (c.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-400' : 'border-zinc-200 bg-zinc-50 text-zinc-400 hover:border-zinc-400')}
+                >
+                  <span className={'h-1.5 w-1.5 rounded-full ' + (c.enabled ? 'bg-emerald-500' : 'bg-zinc-300')} />
+                  {c.enabled ? '启用中' : '已停用'}
+                </button>
                 <Button variant="subtle" onClick={() => { setEditing({ ...c }); setFetched(null); }}>编辑</Button>
                 <Button variant="danger" onClick={() => remove(c)}>删除</Button>
               </div>

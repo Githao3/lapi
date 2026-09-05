@@ -53,7 +53,6 @@ db.exec(`
     value TEXT NOT NULL DEFAULT ''
   );
 `);
-
 // Migrate pre-2026-09 databases: add openai_endpoint (default 'chat', so existing OpenAI channels keep working).
 try {
   const cols = db.prepare('PRAGMA table_info(channels)').all();

@@ -7,6 +7,8 @@ import type {
   CapturePayload,
   FetchModelsResult,
   ApplyPresetResult,
+  CatalogChannelRef,
+  ModelsCatalogEntry,
 } from './types';
 
 async function j<T>(res: Response | Promise<Response>): Promise<T> {
@@ -36,6 +38,7 @@ export const api = {
   createChannel: (c: Partial<Channel>) => j<{ ok: boolean; id: number }>(fetch('/api/channels', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) })),
   updateChannel: (id: number, c: Partial<Channel>) => j<{ ok: boolean }>(fetch('/api/channels/' + id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) })),
   deleteChannel: (id: number) => j<{ ok: boolean }>(fetch('/api/channels/' + id, { method: 'DELETE' })),
+  toggleChannel: (id: number) => j<{ ok: boolean; enabled: boolean }>(fetch('/api/channels/' + id + '/toggle', { method: 'POST' })),
   fetchModels: (id: number) => j<FetchModelsResult>(fetch('/api/channels/' + id + '/fetch-models', { method: 'POST' })),
   fetchModelsDraft: (c: Record<string, unknown>) => j<FetchModelsResult>(fetch('/api/channels/fetch-models', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) })),
   listPresets: () => j<PresetsPayload>(fetch('/api/presets')),
@@ -45,6 +48,7 @@ export const api = {
   clearCapture: () => j<{ ok: boolean }>(fetch('/api/capture', { method: 'DELETE' })),
   saveUaPreset: (ua: string) => j<{ ok: boolean; added?: boolean; uaPresetsCustom?: string[] }>(fetch('/api/ua-presets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ua }) })),
   deleteUaPreset: (ua: string) => j<{ ok: boolean; removed?: boolean; uaPresetsCustom?: string[] }>(fetch('/api/ua-presets?ua=' + encodeURIComponent(ua), { method: 'DELETE' })),
+  getModelsCatalog: () => j<ModelsCatalogEntry[]>(fetch('/api/models-catalog')),
   listLogs: (limit?: number) => j<LogEntry[]>(fetch('/api/logs?limit=' + (limit ?? 100))),
   getSystem: () => j<SystemInfo>(fetch('/api/system')),
 };

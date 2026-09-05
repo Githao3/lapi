@@ -5,8 +5,9 @@ import Presets from './pages/Presets';
 import Capture from './pages/Capture';
 import Settings from './pages/Settings';
 import Logs from './pages/Logs';
+import Models from './pages/Models';
 
-type Page = 'dashboard' | 'channels' | 'presets' | 'capture' | 'settings' | 'logs';
+type Page = 'dashboard' | 'channels' | 'models' | 'presets' | 'capture' | 'settings' | 'logs';
 
 function Icon(props: { d: string }) {
   return (
@@ -27,6 +28,7 @@ function Icon(props: { d: string }) {
 }
 
 const ICONS: Record<Page, string> = {
+  models: 'm12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z M22 17.65l-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65 M22 12.65l-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65',
   dashboard: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
   channels: 'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.3 7 12 12l8.7-5 M12 22V12',
   presets: 'M12 3l1.9 5.7L19.6 10l-5.7 1.9L12 17.6l-1.9-5.7L4.4 10l5.7-1.3zM19 15l.9 2.6L22.5 18l-2.6.9L19 21.5l-.9-2.6L15.5 18l2.6-.4z',
@@ -38,6 +40,7 @@ const ICONS: Record<Page, string> = {
 const NAV: { key: Page; label: string; desc: string }[] = [
   { key: 'dashboard', label: '概览', desc: '运行状态' },
   { key: 'channels', label: '渠道', desc: '上游与路由' },
+  { key: 'models', label: '模型', desc: '上游模型库' },
   { key: 'presets', label: '预设库', desc: 'cc-switch 预设' },
   { key: 'capture', label: '捕获', desc: '请求头对照' },
   { key: 'settings', label: '设置', desc: '端口与安全' },
@@ -120,6 +123,7 @@ export default function App() {
           </div>
           {page === 'dashboard' && <Dashboard />}
           {page === 'channels' && <Channels />}
+          {page === 'models' && <Models />}
           {page === 'presets' && <Presets />}
           {page === 'capture' && <Capture />}
           {page === 'settings' && <Settings />}

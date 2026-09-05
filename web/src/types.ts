@@ -87,3 +87,13 @@ export interface ApplyPresetResult {
   ok: boolean;
   draft: Partial<Channel>;
 }
+export interface CatalogChannelRef {
+  name: string;
+  via: 'declared' | 'alias';
+  enabled: boolean;
+}
+
+export interface ModelsCatalogEntry {
+  model: string;
+  channels: CatalogChannelRef[];
+}
