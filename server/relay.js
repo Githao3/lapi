@@ -11,13 +11,14 @@ import {
   extractUsageFromJson,
   createUsageScanner,
 } from './relay-lib.js';
-import { listChannels, insertLog, getSetting, getChannel } from './db.js';
+import { egressOptions } from './egress.js';
+import { listChannels, insertLog, getSetting } from './db.js';
 import { handleCapture, captureIsEnabled } from './capture.js';
 import { convertRequestBody, convertResponseBody, createLineConverter, convertUpstreamError } from './conversion/index.mjs';
 
 const STREAM_IDLE_MS = 90000;
 
-export async function handleRelayRequest(req, res, protocol, kind, opts = {}) {
+export async function handleRelayRequest(req, res, protocol, kind) {
 if (captureIsEnabled()) {
     handleCapture(req, res, protocol, kind);
     return;
@@ -25,20 +26,14 @@ if (captureIsEnabled()) {
  const started = Date.now();
  const body = req.body ?? {};
  const model = body.model ? String(body.model) : '';
- const forced = opts.forceChannelId ? getChannel(Number(opts.forceChannelId)) : null;
  if (!model) {
     const payload = errorPayload(protocol, 'missing "model" field in request body');
     res.status(400).set('content-type', 'application/json').send(JSON.stringify(payload));
     return;
   }
- if (opts.forceChannelId && !forced) {
-    const payload = errorPayload(protocol, 'proxy target channel not found');
-    res.status(400).set('content-type', 'application/json').send(JSON.stringify(payload));
-    return;
-  }
- const channels = forced ? [] : listChannels();
-  const candidates = forced ? [] : pickCandidateChannels(channels, protocol, model);
-  if (!forced && !candidates.length) {
+const channels = listChannels();
+  const candidates = pickCandidateChannels(channels, protocol, model);
+  if (!candidates.length) {
     const payload = mismatchOrNoChannelMessage(protocol, model, channels, kind);
     res.status(400).set('content-type', 'application/json').send(JSON.stringify(payload));
     return;
@@ -50,7 +45,7 @@ if (captureIsEnabled()) {
  let lastUpstreamModel = '';
  const attempts = [];
  for (let attempt =   0; attempt < 2; attempt++) {
-    const c = forced ?? pickWeightedChannel(candidates);
+    const c = pickWeightedChannel(candidates);
     if (!c) break;
     attemptChannel = c;
     const out = await forwardOnce(req, res, c, protocol, kind, body);
@@ -145,6 +140,7 @@ async function forwardOnce(req, res, c, protocol, kind, body) {
       body: JSON.stringify(upstreamBody),
       signal: AbortSignal.timeout(300000),
       duplex: 'half',
+      ...egressOptions(targetUrl),
     });
   } catch (e) {
     return { done: false, retryable: true, error: String(e && e.message ? e.message : e), sentBytes: false, attempt: { channel: c.name, status: null, error: String(e && e.message ? e.message : e) } };

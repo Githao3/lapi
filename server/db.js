@@ -69,9 +69,8 @@ const DEFAULTS = {
   gateway_token: '',
   capture_enabled: '0',
   logging_enabled: '1',
-  proxy_enabled: '0',
-  proxy_port: '8790',
-  proxy_channel_id: '',
+  upstream_proxy: '',
+  upstream_proxy_bypass: '',
 };
 
 export function getSetting(key) {

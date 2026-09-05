@@ -6,7 +6,6 @@ import { join, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { listChannels, getSetting, setSetting } from './db.js';
 import { handleRelayRequest } from './relay.js';
-import { applyProxySettings } from './proxy.js';
 import { attachCrud } from './crud.js';
 
 process.on('uncaughtException', (e) => console.error('[lapi] UNCAUGHT ' + (e?.stack ?? e)));
@@ -127,7 +126,6 @@ function listenOnce(bind, port) {
     const app = createApp();
     const srv = app.listen(port, bind, () => {
       console.log('[lapi] listening on http://' + bind + ':' + port);
-applyProxySettings();
       resolve(srv);
     });
     srv.on('error', (e) => {

@@ -1,6 +1,8 @@
 // Upstream model-list fetching (cc-switch candidate chain), shared by the admin API
 // (draft/saved channel 拉取模型) and the proxy port's /v1/models forward.
 
+import { egressOptions } from './egress.js';
+
 const KNOWN_COMPAT_SUFFIXES = ['/api/claudecode', '/api/anthropic', '/apps/anthropic', '/api/coding', '/claudecode', '/anthropic', '/step_plan', '/coding', '/claude'];
 
 function endsWithVersionSegment(url) {
@@ -59,7 +61,7 @@ export async function fetchModelsList(c) {
   let error = candidates.length ? '' : '无法从 base_url 推导模型列表端点';
   for (const url of candidates) {
     try {
-      const r = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
+      const r = await fetch(url, { headers, signal: AbortSignal.timeout(10000), ...egressOptions(url) });
       if (r.ok) {
         const j = await r.json().catch(() => null);
         const seen = new Set();

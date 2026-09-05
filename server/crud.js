@@ -16,9 +16,8 @@ import { listPresets, presetToChannel } from './presets.js';
 import { captureIsEnabled } from './capture.js';
 import { normalizeUpstreamUrl } from './relay-lib.js';
 import { fetchModelsList } from './model-fetch.js';
-import { applyProxySettings, proxyStatus } from './proxy.js';
 
-const SETTING_KEYS = ['port', 'bind', 'gateway_token', 'logging_enabled', 'proxy_enabled', 'proxy_port', 'proxy_channel_id'];
+const SETTING_KEYS = ['port', 'bind', 'gateway_token', 'logging_enabled', 'upstream_proxy', 'upstream_proxy_bypass'];
 
 // Custom UA presets saved from the capture page (built-ins stay in presets-data.mjs).
 const CUSTOM_UA_KEY = 'custom_ua_presets';
@@ -45,8 +44,7 @@ function presetsPayloadWithCustom() {
 export function attachCrud(app) {
   app.get('/api/config', (req, res) => {
     const s = allSettings();
-    s.resolved_port = getSetting('port');
-    s.proxy = proxyStatus();
+    s.resolved_port = getSetting('port');
     res.json(s);
   });
 
@@ -55,8 +53,7 @@ export function attachCrud(app) {
     for (const k of Object.keys(body)) {
       if (SETTING_KEYS.includes(k)) setSetting(k, body[k]);
     }
-    applyProxySettings();
-    res.json({ ok: true, proxy: proxyStatus() });
+    res.json({ ok: true });
   });
 
   app.get('/api/channels', (req, res) => {

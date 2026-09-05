@@ -11,6 +11,9 @@ importers:
       express:
         specifier: ^4.21.2
         version: 4.22.2
+      undici:
+        specifier: ^8.10.2
+        version: 8.10.2
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.1.0
@@ -1139,6 +1142,10 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  undici@8.10.2:
+    resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==}
+    engines: {node: '>=22.19.0'}
+
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
     engines: {node: '>= 0.8'}
@@ -2192,6 +2199,8 @@ snapshots:
       mime-types: 2.1.35
 
   typescript@5.9.3: {}
+
+  undici@8.10.2: {}
 
   unpipe@1.0.0: {}
 
