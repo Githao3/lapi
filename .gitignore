@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+web/dist/
+
+# runtime data — contains SQLite DB with real API keys; NEVER commit
+data/
+
+# vendored reference repos (cc-switch etc., ~373MB, re-clone from upstream)
+sources/
+
+# workspace-local
+.zcode/
+
+# misc
+*.log
+.DS_Store
+Thumbs.db

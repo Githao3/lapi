@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, Consolas, "SFMono-Regular", monospace;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #f6f6f4;
+  background-image:
+    radial-gradient(1100px 480px at 88% -12%, rgba(99, 102, 241, 0.08), transparent 60%),
+    radial-gradient(900px 420px at -8% -4%, rgba(16, 185, 129, 0.05), transparent 55%),
+    radial-gradient(700px 380px at 50% 118%, rgba(245, 158, 11, 0.045), transparent 60%);
+  background-attachment: fixed;
+  color: #18181b;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.16);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(24, 24, 27, 0.18) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(24, 24, 27, 0.14); border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(24, 24, 27, 0.24); }
+*::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.animate-pop-in { animation: pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-fade-in { animation: fade-in 0.16s ease-out; }
+.animate-rise-in { animation: rise-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+input[type="checkbox"] {
+  accent-color: #4f46e5;
+}
