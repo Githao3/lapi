@@ -25,7 +25,7 @@ const C_BAR = '#c7d2fe';
 function fmtBucketLabel(ts: number, hourly: boolean): string {
   const d = new Date(ts);
   const p = (x: number) => String(x).padStart(2, '0');
-  const day = (d.getMonth() + 1) + '/' + p(d.getDate());
+  const day = p(d.getMonth() + 1) + '/' + p(d.getDate());
   return hourly ? day + ' ' + p(d.getHours()) + '时' : day;
 }
 
@@ -88,19 +88,29 @@ export default function Dashboard() {
     if (!stats) return null;
     const labels = stats.trend.map((b) => fmtBucketLabel(b.bucket, hourly));
     const grad = (hex: string) => new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-      { offset: 0, color: hex + '59' },
+      { offset: 0, color: hex + '2e' },
       { offset: 1, color: hex + '0a' },
     ]);
     return {
       tooltip: {
         trigger: 'axis' as const,
-        axisPointer: { type: 'cross' as const, crossStyle: { color: '#a1a1aa' }, label: { backgroundColor: '#3f3f46' } },
+        axisPointer: { type: 'line' as const, lineStyle: { color: '#d4d4d8', type: 'dashed' } },
         backgroundColor: 'rgba(255,255,255,0.96)',
         borderColor: '#e4e4e7',
         textStyle: { color: '#18181b', fontSize: 11, fontFamily: 'ui-monospace, monospace' },
         extraCssText: 'box-shadow: 0 8px 24px rgba(0,0,0,0.12); border-radius: 10px;',
+        formatter: (ps: { dataIndex?: number }[]) => {
+          const idx = ps[0]?.dataIndex ?? 0;
+          const b = stats?.trend[idx];
+          if (!b) return '';
+          return '<b>' + fmtBucketLabel(b.bucket, hourly) + '</b><br>'
+            + '<span style="color:' + C_INPUT + '">●</span> 输入: ' + fmtCompact(b.input_tokens) + '<br>'
+            + '<span style="color:' + C_OUTPUT + '">●</span> 输出: ' + fmtCompact(b.output_tokens) + '<br>'
+            + '请求次数: ' + b.requests + '<br><br>'
+            + '合计 tokens: ' + fmtCompact(b.input_tokens + b.output_tokens);
+        },
       },
-      legend: { data: ['输入 tokens', '输出 tokens', '请求次数'], top: 0, right: 0, textStyle: { color: '#71717a', fontSize: 11 }, itemWidth: 14, itemHeight: 8 },
+      legend: { data: ['输入 tokens', '输出 tokens'], top: 0, right: 0, textStyle: { color: '#71717a', fontSize: 11 }, itemWidth: 14, itemHeight: 8 },
       grid: { top: 34, bottom: 26, left: 56, right: 52 },
       xAxis: {
         type: 'category' as const,
@@ -111,22 +121,22 @@ export default function Dashboard() {
         axisTick: { show: false },
       },
       yAxis: [
-        { type: 'value' as const, name: 'tokens', nameTextStyle: { color: '#a1a1aa', fontSize: 10 }, splitLine: { lineStyle: { color: '#f4f4f5' } }, axisLabel: { color: '#a1a1aa', fontSize: 10, formatter: (v: number) => fmtCompact(v) } },
-        { type: 'value' as const, name: '次数', nameTextStyle: { color: '#a1a1aa', fontSize: 10 }, splitLine: { show: false }, axisLabel: { color: '#a1a1aa', fontSize: 10 }, splitNumber: 3 },
+        { type: 'value' as const, splitLine: { lineStyle: { color: '#f4f4f5' } }, axisLabel: { color: '#a1a1aa', fontSize: 10, formatter: (v: number) => fmtCompact(v) } },
+        { type: 'value' as const, show: false, max: Math.max(1, ...stats.trend.map((b) => b.requests)) * 3, splitLine: { show: false } },
       ],
       series: [
         {
-          name: '请求次数', type: 'bar' as const, yAxisIndex: 1, data: stats.trend.map((b) => b.requests),
-          itemStyle: { color: C_BAR, borderRadius: [3, 3, 0, 0] }, barWidth: '40%', z: 1,
+          name: '请求次数', type: 'bar' as const, yAxisIndex: 1, data: stats.trend.map((b) => b.requests), barGap: '-100%',
+          itemStyle: { color: '#e8e8f2', borderRadius: [3, 3, 0, 0] }, barWidth: '46%', z: 1,
         },
         {
-          name: '输入 tokens', type: 'line' as const, smooth: true, symbol: 'none', z: 3,
+          name: '输入 tokens', type: 'line' as const, smooth: 0.25, symbol: 'none', z: 3,
           data: stats.trend.map((b) => b.input_tokens),
           lineStyle: { width: 2.5, color: C_INPUT }, itemStyle: { color: C_INPUT },
           areaStyle: { color: grad(C_INPUT) }, emphasis: { focus: 'series' as const },
         },
         {
-          name: '输出 tokens', type: 'line' as const, smooth: true, symbol: 'none', z: 3,
+          name: '输出 tokens', type: 'line' as const, smooth: 0.25, symbol: 'none', z: 3,
           data: stats.trend.map((b) => b.output_tokens),
           lineStyle: { width: 2.5, color: C_OUTPUT }, itemStyle: { color: C_OUTPUT },
           areaStyle: { color: grad(C_OUTPUT) }, emphasis: { focus: 'series' as const },
@@ -143,6 +153,7 @@ export default function Dashboard() {
     const data = top.map((r) => ({ name: r.name, value: r.requests }));
     if (restReq > 0) data.push({ name: '其他', value: restReq });
     const palette = ['#3b82f6', '#10b981', '#f59e0b', '#06b6d4', '#8b5cf6', '#ef4444', '#64748b', '#d4d4d8'];
+    const totalReq = stats.by_model.reduce((s, r) => s + r.requests, 0);
     return {
       tooltip: {
         trigger: 'item' as const, confine: true,
@@ -151,11 +162,20 @@ export default function Dashboard() {
         extraCssText: 'box-shadow: 0 8px 24px rgba(0,0,0,0.12); border-radius: 10px;',
         formatter: (p: { name: string; value: number; percent: number }) => '<b>' + p.name + '</b><br>' + fmtCompact(p.value) + ' 次 · ' + p.percent + '%',
       },
-      legend: { bottom: 0, type: 'scroll' as const, textStyle: { color: '#71717a', fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
+      title: {
+        text: fmtCompact(totalReq),
+        subtext: '总请求',
+        left: 'center', top: '34%',
+        textStyle: { fontSize: 20, fontWeight: 600, color: '#18181b', fontFamily: 'ui-monospace, monospace' },
+        subtextStyle: { fontSize: 10, color: '#a1a1aa' },
+        itemGap: 2,
+      },
       series: [{
-        type: 'pie' as const, radius: ['52%', '74%'], center: ['50%', '44%'],
+        type: 'pie' as const, radius: ['46%', '64%'], center: ['50%', '46%'],
         itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-        label: { show: false }, emphasis: { scale: true, scaleSize: 6, focus: 'self' as const },
+        label: { show: true, formatter: (p: { name: string; percent: number }) => (p.name.length > 12 ? p.name.slice(0, 12) + '…' : p.name) + '\n' + p.percent + '%', color: '#52525b', fontSize: 10, fontFamily: 'ui-monospace, monospace', lineHeight: 14, overflow: 'break' as const, width: 74 },
+        labelLine: { length: 8, length2: 6, lineStyle: { color: '#d4d4d8' } },
+        emphasis: { scale: true, scaleSize: 6, focus: 'self' as const, label: { show: true, fontWeight: 600 } },
         data: data.map((d, i) => ({ ...d, itemStyle: { color: palette[i % palette.length] } })),
       }],
     };
@@ -214,15 +234,10 @@ export default function Dashboard() {
         <KpiCard label="Tokens 输入" value={fmtCompact(t?.input_tokens ?? 0)} delta={delta(t?.input_tokens ?? 0, pt?.input_tokens)} sub={'缓存 R ' + fmtCompact(t?.cache_read ?? 0) + ' · W ' + fmtCompact(t?.cache_creation ?? 0)} dot="bg-blue-500" />
         <KpiCard label="Tokens 输出" value={fmtCompact(t?.output_tokens ?? 0)} delta={delta(t?.output_tokens ?? 0, pt?.output_tokens)} sub={'缓存命中 ' + (hitRate != null ? hitRate + '%' : '—')} dot="bg-emerald-500" />
         <KpiCard label="RPM / TPM" value={String(stats?.rpm ?? 0) + ' / ' + fmtCompact(stats?.tpm ?? 0)} sub="近 5 分钟均值" dot="bg-amber-500" />
-        <KpiCard label="平均耗时" value={fmtLatency(t?.avg_ms ?? 0)} sub={'范围：' + (RANGES.find((r) => r.key === range)?.label ?? range)} dot="bg-zinc-400" />
+        <KpiCard label="平均耗时" value={fmtLatency(t?.avg_ms ?? 0)} sub={'全渠道均值 · ' + (RANGES.find((r) => r.key === range)?.label ?? range)} dot="bg-zinc-400" />
       </div>
 
-      <Card title="用量趋势" actions={
-        <div className="flex items-center gap-3 text-[11px] text-zinc-400">
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ background: C_INPUT }} />输入</span>
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ background: C_OUTPUT }} />输出</span>
-        </div>
-      }>
+      <Card title="用量趋势">
         {!stats || stats.trend.every((b) => b.requests === 0) ? (
           <EmptyState text="所选范围内暂无请求。" />
         ) : (
