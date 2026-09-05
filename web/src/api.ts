@@ -7,6 +7,8 @@ import type {
   CapturePayload,
   FetchModelsResult,
   ApplyPresetResult,
+  UsageStats,
+  UsageStatName,
   CatalogChannelRef,
   ModelsCatalogEntry,
 } from './types';
@@ -48,6 +50,7 @@ export const api = {
   clearCapture: () => j<{ ok: boolean }>(fetch('/api/capture', { method: 'DELETE' })),
   saveUaPreset: (ua: string) => j<{ ok: boolean; added?: boolean; uaPresetsCustom?: string[] }>(fetch('/api/ua-presets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ua }) })),
   deleteUaPreset: (ua: string) => j<{ ok: boolean; removed?: boolean; uaPresetsCustom?: string[] }>(fetch('/api/ua-presets?ua=' + encodeURIComponent(ua), { method: 'DELETE' })),
+  getStats: (range: string) => j<UsageStats>(fetch('/api/stats?range=' + encodeURIComponent(range))),
   getModelsCatalog: () => j<ModelsCatalogEntry[]>(fetch('/api/models-catalog')),
   listLogs: (limit?: number) => j<LogEntry[]>(fetch('/api/logs?limit=' + (limit ?? 100))),
   getSystem: () => j<SystemInfo>(fetch('/api/system')),

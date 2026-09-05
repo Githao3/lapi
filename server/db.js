@@ -207,3 +207,73 @@ return Number(r.n);
 }
 
 export default db;
+// ---------- usage stats (new-api/sub2api style, live aggregation) ----------
+
+// Aggregate relay logs over a range into KPIs + bucketed trend + rankings.
+// Buckets: 24h -> hourly, 7d/30d -> daily. Integer-truncated ms buckets.
+export function collectStats(range) {
+  const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;
+  const bucketMs = range === '24h' ? 3600000 : 86400000;
+  const since = Date.now() - days * 86400000;
+  const rows = db.prepare("SELECT ts, model, channel_name, status, ms, detail FROM logs WHERE kind = 'relay' AND ts >= ?").all(since);
+
+  const bucketCount = range === '24h' ? 24 : days;
+  const nowBucket = Math.floor(Date.now() / bucketMs);
+  const trend = [];
+  for (let i = bucketCount - 1; i >= 0; i--) {
+    const b = (nowBucket - i) * bucketMs;
+    trend.push({ bucket: b, requests: 0, input_tokens: 0, output_tokens: 0 });
+  }
+  const byIndex = new Map(trend.map((t, i) => [t.bucket, i]));
+
+  const totals = { requests: 0, ok: 0, fail: 0, input_tokens: 0, output_tokens: 0, cache_read: 0, cache_creation: 0 };
+  let totalMs = 0;
+  let rpmCount = 0;
+  let rpmTokens = 0;
+  const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+  const byModel = new Map();
+  const byChannel = new Map();
+  const bump = (map, key, input, output) => {
+    if (!key) return;
+    const e = map.get(key) ?? { name: key, requests: 0, input_tokens: 0, output_tokens: 0 };
+    e.requests++;
+    e.input_tokens += input;
+    e.output_tokens += output;
+    map.set(key, e);
+  };
+  for (const r of rows) {
+    const st = Number(r.status) || 0;
+    if (st >= 200 && st < 400) totals.ok++;
+    else if (st >= 400) totals.fail++;
+    let u = null;
+    try { u = JSON.parse(r.detail || '{}').usage ?? null; } catch { /* malformed detail */ }
+    const input = Number(u?.input_tokens ?? 0);
+    const output = Number(u?.output_tokens ?? 0);
+    totals.input_tokens += input;
+    totals.output_tokens += output;
+    totals.cache_read += Number(u?.cache_read_input_tokens ?? 0);
+    totals.cache_creation += Number(u?.cache_creation_input_tokens ?? 0);
+    totalMs += Number(r.ms ?? 0);
+    if (r.ts >= fiveMinAgo) { rpmCount++; rpmTokens += input + output; }
+    const bi = byIndex.get(Math.floor(r.ts / bucketMs) * bucketMs);
+    if (bi != null) { trend[bi].requests++; trend[bi].input_tokens += input; trend[bi].output_tokens += output; }
+    bump(byModel, r.model, input, output);
+    bump(byChannel, r.channel_name, input, output);
+  }
+  const rank = (map) => [...map.values()].sort((a, b) => b.requests - a.requests || b.input_tokens + b.output_tokens - (a.input_tokens + a.output_tokens));
+  totals.requests = rows.length;
+  return {
+    range,
+    bucket_ms: bucketMs,
+    totals: {
+      ...totals,
+      success_rate: rows.length ? Math.round((totals.ok / rows.length) * 1000) / 10 : 0,
+      avg_ms: rows.length ? Math.round(totalMs / rows.length) : 0,
+    },
+    rpm: Math.round((rpmCount / 5) * 10) / 10,
+    tpm: Math.round(rpmTokens / 5),
+    trend,
+    by_model: rank(byModel),
+    by_channel: rank(byChannel),
+  };
+}

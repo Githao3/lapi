@@ -11,6 +11,7 @@ import {
   allSettings,
   listLogs,
   clearLogs,
+  collectStats,
 } from './db.js';
 import { listPresets, presetToChannel } from './presets.js';
 import { captureIsEnabled } from './capture.js';
@@ -161,6 +162,10 @@ export function attachCrud(app) {
   app.delete('/api/capture', (req, res) => {
     clearLogs('capture');
     res.json({ ok: true });
+  });
+
+  app.get('/api/stats', (req, res) => {
+    res.json(collectStats(String(req.query.range ?? '7d')));
   });
 
   app.get('/api/models-catalog', (req, res) => {

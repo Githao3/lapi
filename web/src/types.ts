@@ -99,3 +99,21 @@ export interface ModelsCatalogEntry {
   model: string;
   channels: CatalogChannelRef[];
 }
+
+export interface UsageStatName {
+  name: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface UsageStats {
+  range: string;
+  bucket_ms: number;
+  totals: { requests: number; ok: number; fail: number; success_rate: number; input_tokens: number; output_tokens: number; cache_read: number; cache_creation: number; avg_ms: number };
+  rpm: number;
+  tpm: number;
+  trend: { bucket: number; requests: number; input_tokens: number; output_tokens: number }[];
+  by_model: UsageStatName[];
+  by_channel: UsageStatName[];
+}
