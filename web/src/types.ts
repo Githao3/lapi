@@ -64,6 +64,16 @@ export interface SystemInfo {
   channels: number;
 }
 
+export interface ProxyStatus {
+  enabled: boolean;
+  port: number;
+  channel_id: number;
+  channel_name: string;
+  running: boolean;
+  error: string;
+  url: string;
+}
+
 export interface SettingsPayload {
   port?: string;
   bind?: string;
@@ -71,6 +81,7 @@ export interface SettingsPayload {
   capture_enabled?: string;
   logging_enabled?: string;
   resolved_port?: string;
+  proxy?: ProxyStatus;
 }
 
 export interface CapturePayload {
