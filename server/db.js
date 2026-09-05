@@ -216,6 +216,7 @@ export function collectStats(range) {
   const bucketMs = range === '24h' ? 3600000 : 86400000;
   const since = Date.now() - days * 86400000;
   const rows = db.prepare("SELECT ts, model, channel_name, status, ms, detail FROM logs WHERE kind = 'relay' AND ts >= ?").all(since);
+  const rowsPrev = db.prepare("SELECT ts, model, channel_name, status, ms, detail FROM logs WHERE kind = 'relay' AND ts >= ? AND ts < ?").all(since - days * 86400000, since);
 
   const bucketCount = range === '24h' ? 24 : days;
   const nowBucket = Math.floor(Date.now() / bucketMs);
@@ -262,7 +263,16 @@ export function collectStats(range) {
   }
   const rank = (map) => [...map.values()].sort((a, b) => b.requests - a.requests || b.input_tokens + b.output_tokens - (a.input_tokens + a.output_tokens));
   totals.requests = rows.length;
+  const prev = { requests: 0, input_tokens: 0, output_tokens: 0 };
+  for (const r of rowsPrev) {
+    prev.requests++;
+    let u2 = null;
+    try { u2 = JSON.parse(r.detail || '{}').usage ?? null; } catch { /* ignore */ }
+    prev.input_tokens += Number(u2?.input_tokens ?? 0);
+    prev.output_tokens += Number(u2?.output_tokens ?? 0);
+  }
   return {
+    prev_totals: prev,
     range,
     bucket_ms: bucketMs,
     totals: {

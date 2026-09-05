@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import * as echarts from 'echarts';
 import { api, fmtTs, fmtUptime } from '../api';
 import type { SystemInfo, SettingsPayload, LogEntry, UsageStats } from '../types';
 import { Card, Badge, EmptyState, Button, PageHeader } from '../components/ui';
+import { EChart } from '../components/EChart';
 
 function fmtCompact(n: number): string {
   if (n == null) return '—';
@@ -18,88 +20,31 @@ const RANGES: { key: string; label: string }[] = [
 
 const C_INPUT = '#3b82f6';
 const C_OUTPUT = '#10b981';
+const C_BAR = '#c7d2fe';
 
-// Lightweight stacked-bar trend chart (no chart lib): input + output tokens per bucket.
-function TrendChart({ stats }: { stats: UsageStats }) {
-  const W = 640;
-  const H = 170;
-  const PAD_L = 44;
-  const PAD_B = 20;
-  const PAD_T = 8;
-  const buckets = stats.trend;
-  const maxVal = Math.max(1, ...buckets.map((b) => b.input_tokens + b.output_tokens));
-  const iw = (W - PAD_L - 8) / Math.max(1, buckets.length);
-  const bars = buckets.map((b, i) => {
-    const total = b.input_tokens + b.output_tokens;
-    const hIn = (b.input_tokens / maxVal) * (H - PAD_B - PAD_T);
-    const hOut = (b.output_tokens / maxVal) * (H - PAD_B - PAD_T);
-    const x = PAD_L + i * iw + iw * 0.14;
-    const w = Math.max(2, iw * 0.72);
-    const yOut = H - PAD_B - hIn - hOut;
-    const yIn = H - PAD_B - hIn;
-    return { x, w, yIn, hIn, yOut, hOut, total, bucket: b.bucket };
-  });
-  const maxLabel = fmtCompact(maxVal);
-  const labelStep = Math.ceil(buckets.length / 8);
-  return (
-    <svg viewBox={'0 0 ' + W + ' ' + H} className="w-full" role="img">
-      <line x1={PAD_L} y1={H - PAD_B} x2={W - 4} y2={H - PAD_B} stroke="#e4e4e7" />
-      <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={H - PAD_B} stroke="#e4e4e7" />
-      <text x={4} y={PAD_T + 8} fontSize="9" fill="#a1a1aa">{maxLabel}</text>
-      <text x={4} y={H - PAD_B} fontSize="9" fill="#a1a1aa">0</text>
-      {bars.map((b, i) => (
-        <g key={i}>
-          {b.total > 0 && (
-            <>
-              <rect x={b.x} y={b.yOut} width={b.w} height={Math.max(b.hOut, 0.5)} fill={C_OUTPUT} opacity="0.9" rx="1.5" />
-              <rect x={b.x} y={b.yIn} width={b.w} height={Math.max(b.hIn, 0.5)} fill={C_INPUT} opacity="0.9" rx="1.5" />
-            </>
-          )}
-          {i % labelStep === 0 && (
-            <text x={b.x + b.w / 2} y={H - 6} fontSize="9" fill="#a1a1aa" textAnchor="middle">
-              {new Date(b.bucket).getMonth() + 1}/{new Date(b.bucket).getDate()}
-              {stats.bucket_ms < 86400000 ? ' ' + String(new Date(b.bucket).getHours()).padStart(2, '0') + '时' : ''}
-            </text>
-          )}
-        </g>
-      ))}
-    </svg>
-  );
+function fmtBucketLabel(ts: number, hourly: boolean): string {
+  const d = new Date(ts);
+  const p = (x: number) => String(x).padStart(2, '0');
+  const day = (d.getMonth() + 1) + '/' + p(d.getDate());
+  return hourly ? day + ' ' + p(d.getHours()) + '时' : day;
 }
 
-function RankBars({ rows }: { rows: { name: string; requests: number; input_tokens: number; output_tokens: number }[] }) {
-  const top = rows.slice(0, 6);
-  const max = Math.max(1, ...top.map((r) => r.requests));
-  const rest = rows.slice(6);
-  const restTokens = rest.reduce((s, r) => s + r.input_tokens + r.output_tokens, 0);
-  const restReq = rest.reduce((s, r) => s + r.requests, 0);
-  if (top.length === 0) return <div className="text-xs text-zinc-400">无数据</div>;
-  return (
-    <div className="space-y-2">
-      {top.map((r) => (
-        <div key={r.name}>
-          <div className="mb-0.5 flex items-baseline justify-between gap-2 text-xs">
-            <span className="min-w-0 truncate font-mono text-zinc-700" title={r.name}>{r.name}</span>
-            <span className="whitespace-nowrap tabular-nums text-zinc-400">{fmtCompact(r.requests)} 次 · {fmtCompact(r.input_tokens + r.output_tokens)} tk</span>
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100">
-            <div className="h-full rounded-full bg-indigo-500/80" style={{ width: Math.max(3, (r.requests / max) * 100) + '%' }} />
-          </div>
-        </div>
-      ))}
-      {rest.length > 0 && (
-        <div className="pt-1 text-[11px] text-zinc-400">其他 {rest.length} 项：{fmtCompact(restReq)} 次 · {fmtCompact(restTokens)} tk</div>
-      )}
-    </div>
-  );
+function delta(cur: number, prev: number | undefined): { text: string; cls: string } | null {
+  if (prev == null || prev === 0) return null;
+  const pct = Math.round(((cur - prev) / prev) * 1000) / 10;
+  if (!isFinite(pct) || pct === 0) return null;
+  return { text: (pct > 0 ? '▲ ' : '▼ ') + Math.abs(pct) + '%', cls: pct > 0 ? 'text-emerald-600' : 'text-rose-500' };
 }
 
-function KpiCard(props: { label: string; value: string; sub?: string; dot?: string }) {
+function KpiCard(props: { label: string; value: string; sub?: string; dot?: string; delta?: { text: string; cls: string } | null }) {
   return (
-    <div className="rounded-xl border border-black/[0.05] bg-gradient-to-b from-white to-zinc-50/70 p-3.5 transition-shadow hover:shadow-md">
-      <div className="flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.12em] text-zinc-400">
-        {props.dot && <span className={'h-1.5 w-1.5 rounded-full ' + props.dot} />}
-        {props.label}
+    <div className="rounded-xl border border-black/[0.05] bg-gradient-to-b from-white to-zinc-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex items-center justify-between gap-2 text-[10.5px] font-medium uppercase tracking-[0.12em] text-zinc-400">
+        <span className="flex items-center gap-1.5">
+          {props.dot && <span className={'h-1.5 w-1.5 rounded-full ' + props.dot} />}
+          {props.label}
+        </span>
+        {props.delta && <span className={'text-[11px] font-semibold normal-case tracking-normal ' + props.delta.cls}>{props.delta.text}</span>}
       </div>
       <div className="mt-1.5 text-lg font-semibold tabular-nums tracking-tight text-zinc-900">{props.value}</div>
       {props.sub && <div className="mt-0.5 text-[11px] tabular-nums text-zinc-400">{props.sub}</div>}
@@ -131,10 +76,123 @@ export default function Dashboard() {
 
   const mode = sys?.mode ?? 'relay';
   const t = stats?.totals;
+  const pt = stats?.prev_totals;
+  const hourly = (stats?.bucket_ms ?? 86400000) < 86400000;
   const hitRate = useMemo(() => {
     const denom = (t?.input_tokens ?? 0) + (t?.cache_read ?? 0) + (t?.cache_creation ?? 0);
     return denom > 0 ? Math.round(((t?.cache_read ?? 0) / denom) * 1000) / 10 : null;
   }, [t]);
+
+  // ---- trend chart option: gradient area (tokens) + bars (requests, right axis) ----
+  const trendOption = useMemo(() => {
+    if (!stats) return null;
+    const labels = stats.trend.map((b) => fmtBucketLabel(b.bucket, hourly));
+    const grad = (hex: string) => new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+      { offset: 0, color: hex + '59' },
+      { offset: 1, color: hex + '0a' },
+    ]);
+    return {
+      tooltip: {
+        trigger: 'axis' as const,
+        axisPointer: { type: 'cross' as const, crossStyle: { color: '#a1a1aa' }, label: { backgroundColor: '#3f3f46' } },
+        backgroundColor: 'rgba(255,255,255,0.96)',
+        borderColor: '#e4e4e7',
+        textStyle: { color: '#18181b', fontSize: 11, fontFamily: 'ui-monospace, monospace' },
+        extraCssText: 'box-shadow: 0 8px 24px rgba(0,0,0,0.12); border-radius: 10px;',
+      },
+      legend: { data: ['输入 tokens', '输出 tokens', '请求次数'], top: 0, right: 0, textStyle: { color: '#71717a', fontSize: 11 }, itemWidth: 14, itemHeight: 8 },
+      grid: { top: 34, bottom: 26, left: 56, right: 52 },
+      xAxis: {
+        type: 'category' as const,
+        data: labels,
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: '#e4e4e7' } },
+        axisLabel: { color: '#a1a1aa', fontSize: 10, fontFamily: 'ui-monospace, monospace', interval: Math.ceil(labels.length / 8) - 1 },
+        axisTick: { show: false },
+      },
+      yAxis: [
+        { type: 'value' as const, name: 'tokens', nameTextStyle: { color: '#a1a1aa', fontSize: 10 }, splitLine: { lineStyle: { color: '#f4f4f5' } }, axisLabel: { color: '#a1a1aa', fontSize: 10, formatter: (v: number) => fmtCompact(v) } },
+        { type: 'value' as const, name: '次数', nameTextStyle: { color: '#a1a1aa', fontSize: 10 }, splitLine: { show: false }, axisLabel: { color: '#a1a1aa', fontSize: 10 }, splitNumber: 3 },
+      ],
+      series: [
+        {
+          name: '请求次数', type: 'bar' as const, yAxisIndex: 1, data: stats.trend.map((b) => b.requests),
+          itemStyle: { color: C_BAR, borderRadius: [3, 3, 0, 0] }, barWidth: '40%', z: 1,
+        },
+        {
+          name: '输入 tokens', type: 'line' as const, smooth: true, symbol: 'none', z: 3,
+          data: stats.trend.map((b) => b.input_tokens),
+          lineStyle: { width: 2.5, color: C_INPUT }, itemStyle: { color: C_INPUT },
+          areaStyle: { color: grad(C_INPUT) }, emphasis: { focus: 'series' as const },
+        },
+        {
+          name: '输出 tokens', type: 'line' as const, smooth: true, symbol: 'none', z: 3,
+          data: stats.trend.map((b) => b.output_tokens),
+          lineStyle: { width: 2.5, color: C_OUTPUT }, itemStyle: { color: C_OUTPUT },
+          areaStyle: { color: grad(C_OUTPUT) }, emphasis: { focus: 'series' as const },
+        },
+      ],
+    };
+  }, [stats, hourly]);
+
+  // ---- model distribution donut ----
+  const donutOption = useMemo(() => {
+    if (!stats || stats.by_model.length === 0) return null;
+    const top = stats.by_model.slice(0, 7);
+    const restReq = stats.by_model.slice(7).reduce((s, r) => s + r.requests, 0);
+    const data = top.map((r) => ({ name: r.name, value: r.requests }));
+    if (restReq > 0) data.push({ name: '其他', value: restReq });
+    const palette = ['#3b82f6', '#10b981', '#f59e0b', '#06b6d4', '#8b5cf6', '#ef4444', '#64748b', '#d4d4d8'];
+    return {
+      tooltip: {
+        trigger: 'item' as const, confine: true,
+        backgroundColor: 'rgba(255,255,255,0.96)', borderColor: '#e4e4e7',
+        textStyle: { color: '#18181b', fontSize: 11, fontFamily: 'ui-monospace, monospace' },
+        extraCssText: 'box-shadow: 0 8px 24px rgba(0,0,0,0.12); border-radius: 10px;',
+        formatter: (p: { name: string; value: number; percent: number }) => '<b>' + p.name + '</b><br>' + fmtCompact(p.value) + ' 次 · ' + p.percent + '%',
+      },
+      legend: { bottom: 0, type: 'scroll' as const, textStyle: { color: '#71717a', fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
+      series: [{
+        type: 'pie' as const, radius: ['52%', '74%'], center: ['50%', '44%'],
+        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+        label: { show: false }, emphasis: { scale: true, scaleSize: 6, focus: 'self' as const },
+        data: data.map((d, i) => ({ ...d, itemStyle: { color: palette[i % palette.length] } })),
+      }],
+    };
+  }, [stats]);
+
+  // ---- ranking horizontal bars ----
+  const rankOption = (rows: { name: string; requests: number; input_tokens: number; output_tokens: number }[]) => {
+    if (rows.length === 0) return null;
+    const top = rows.slice(0, 6);
+    const max = Math.max(1, ...top.map((r) => r.requests));
+    return {
+      tooltip: {
+        trigger: 'item' as const, confine: true,
+        backgroundColor: 'rgba(255,255,255,0.96)', borderColor: '#e4e4e7',
+        textStyle: { color: '#18181b', fontSize: 11, fontFamily: 'ui-monospace, monospace' },
+        extraCssText: 'box-shadow: 0 8px 24px rgba(0,0,0,0.12); border-radius: 10px;',
+        formatter: (p: { name: string; value: number }) => {
+          const r = top.find((x) => x.name === p.name);
+          if (!r) return p.name;
+          return '<b>' + p.name + '</b><br>' + fmtCompact(r.requests) + ' 次 · tk ' + fmtCompact(r.input_tokens) + ' / ' + fmtCompact(r.output_tokens);
+        },
+      },
+      grid: { top: 6, bottom: 4, left: 8, right: 40, containLabel: true },
+      xAxis: { type: 'value' as const, show: false, max },
+      yAxis: {
+        type: 'category' as const, data: top.map((r) => r.name).reverse(),
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { color: '#52525b', fontSize: 10, fontFamily: 'ui-monospace, monospace', width: 120, overflow: 'truncate' as const },
+      },
+      series: [{
+        type: 'bar' as const, data: top.map((r) => r.requests).reverse(), barWidth: 10,
+        itemStyle: { borderRadius: 5, color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: '#818cf8' }, { offset: 1, color: '#4f46e5' }]) },
+        emphasis: { itemStyle: { color: '#4338ca' } },
+        label: { show: true, position: 'right' as const, color: '#71717a', fontSize: 10, fontFamily: 'ui-monospace, monospace', formatter: (p: { value: number }) => fmtCompact(p.value) },
+      }],
+    };
+  };
 
   return (
     <div className="space-y-5">
@@ -152,11 +210,11 @@ export default function Dashboard() {
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <KpiCard label="请求次数" value={fmtCompact(t?.requests ?? 0)} sub={'成功率 ' + (t?.success_rate ?? 0) + '% · 失败 ' + (t?.fail ?? 0)} dot="bg-indigo-500" />
-        <KpiCard label="Tokens 输入" value={fmtCompact(t?.input_tokens ?? 0)} sub={'缓存 R ' + fmtCompact(t?.cache_read ?? 0) + ' · W ' + fmtCompact(t?.cache_creation ?? 0) + (hitRate != null ? ' · 命中 ' + hitRate + '%' : '')} dot="bg-blue-500" />
-        <KpiCard label="Tokens 输出" value={fmtCompact(t?.output_tokens ?? 0)} sub={'入/出比 ' + ((t?.output_tokens ?? 0) > 0 && (t?.input_tokens ?? 0) > 0 ? ((t!.input_tokens / t!.output_tokens).toFixed(1) + ' : 1') : '—')} dot="bg-emerald-500" />
+        <KpiCard label="请求次数" value={fmtCompact(t?.requests ?? 0)} delta={delta(t?.requests ?? 0, pt?.requests)} sub={'成功率 ' + (t?.success_rate ?? 0) + '% · 失败 ' + (t?.fail ?? 0)} dot="bg-indigo-500" />
+        <KpiCard label="Tokens 输入" value={fmtCompact(t?.input_tokens ?? 0)} delta={delta(t?.input_tokens ?? 0, pt?.input_tokens)} sub={'缓存 R ' + fmtCompact(t?.cache_read ?? 0) + ' · W ' + fmtCompact(t?.cache_creation ?? 0)} dot="bg-blue-500" />
+        <KpiCard label="Tokens 输出" value={fmtCompact(t?.output_tokens ?? 0)} delta={delta(t?.output_tokens ?? 0, pt?.output_tokens)} sub={'缓存命中 ' + (hitRate != null ? hitRate + '%' : '—')} dot="bg-emerald-500" />
         <KpiCard label="RPM / TPM" value={String(stats?.rpm ?? 0) + ' / ' + fmtCompact(stats?.tpm ?? 0)} sub="近 5 分钟均值" dot="bg-amber-500" />
-        <KpiCard label="平均耗时" value={fmtSec(stats?.totals?.avg_ms ?? 0)} sub={'时间范围：' + (RANGES.find((r) => r.key === range)?.label ?? range)} dot="bg-zinc-400" />
+        <KpiCard label="平均耗时" value={fmtLatency(t?.avg_ms ?? 0)} sub={'范围：' + (RANGES.find((r) => r.key === range)?.label ?? range)} dot="bg-zinc-400" />
       </div>
 
       <Card title="用量趋势" actions={
@@ -168,16 +226,19 @@ export default function Dashboard() {
         {!stats || stats.trend.every((b) => b.requests === 0) ? (
           <EmptyState text="所选范围内暂无请求。" />
         ) : (
-          <TrendChart stats={stats} />
+          <EChart option={trendOption!} className="h-[260px] w-full" />
         )}
       </Card>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Card title="模型排行（按调用次数）">
-          <RankBars rows={stats?.by_model ?? []} />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <Card title="模型调用分布">
+          {donutOption ? <EChart option={donutOption} className="h-[220px] w-full" /> : <EmptyState text="无数据" />}
         </Card>
-        <Card title="渠道排行（按调用次数）">
-          <RankBars rows={stats?.by_channel ?? []} />
+        <Card title="模型排行">
+          {rankOption(stats?.by_model ?? []) ? <EChart option={rankOption(stats?.by_model ?? [])!} className="h-[220px] w-full" /> : <EmptyState text="无数据" />}
+        </Card>
+        <Card title="渠道排行">
+          {rankOption(stats?.by_channel ?? []) ? <EChart option={rankOption(stats?.by_channel ?? [])!} className="h-[220px] w-full" /> : <EmptyState text="无数据" />}
         </Card>
       </div>
 
@@ -229,7 +290,7 @@ export default function Dashboard() {
   );
 }
 
-function fmtSec(ms: number): string {
+function fmtLatency(ms: number): string {
   return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(2) + 's';
 }
 
