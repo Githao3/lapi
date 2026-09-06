@@ -76,7 +76,8 @@ export interface SettingsPayload {
 }
 
 export interface CapturePayload {
-  enabled: boolean;
+  // Server may answer with a SQLite int (1/0) or string; normalize on read.
+  enabled: boolean | number | string;
   entries: LogEntry[];
 }
 
@@ -111,6 +112,7 @@ export interface UsageStats {
   range: string;
   bucket_ms: number;
   totals: { requests: number; ok: number; fail: number; success_rate: number; input_tokens: number; output_tokens: number; cache_read: number; cache_creation: number; avg_ms: number };
+  prev_totals: { requests: number; input_tokens: number; output_tokens: number };
   rpm: number;
   tpm: number;
   trend: { bucket: number; requests: number; input_tokens: number; output_tokens: number }[];
