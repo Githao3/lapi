@@ -31,21 +31,6 @@ const MODEL_COLORS = ['#5b8cff', '#22c39a', '#b07cff', '#ff5d6c', '#f5a524', '#1
 const OTHERS_COLOR = '#d4d4d8';
 const colorForIndex = (i: number) => MODEL_COLORS[i % MODEL_COLORS.length];
 
-/**
- * Keep the leading n rows sorted desc by value, collapse the tail into one
- * bucket — a long tail of sub-1% models turns into slivers too thin to read.
- */
-function topWithOthers<T>(items: T[], value: (t: T) => number, n: number) {
-  const sorted = [...items].sort((a, b) => value(b) - value(a));
-  const rest = sorted.slice(n);
-  return {
-    top: sorted.slice(0, n),
-    othersValue: rest.reduce((s, x) => s + value(x), 0),
-    othersCount: rest.length,
-    grand: sorted.reduce((s, x) => s + value(x), 0),
-  };
-}
-
 const C_INPUT = '#3b82f6';
 const C_OUTPUT = '#10b981';
 
@@ -92,6 +77,8 @@ interface DistRow {
   value: number;
   color: string;
   isOthers: boolean;
+  tkIn: number;
+  tkOut: number;
 }
 
 export default function Dashboard() {
@@ -128,9 +115,21 @@ export default function Dashboard() {
   // ---- distribution rows: top 5 models by requests + grey Others (shared by donut & list) ----
   const dist = useMemo<{ rows: DistRow[]; grand: number }>(() => {
     if (!stats || stats.by_model.length === 0) return { rows: [], grand: 0 };
-    const { top, othersValue, othersCount, grand } = topWithOthers(stats.by_model, (r) => r.requests, 5);
-    const rows: DistRow[] = top.map((r, i) => ({ name: r.name, value: r.requests, color: colorForIndex(i), isOthers: false }));
-    if (othersCount > 0) rows.push({ name: '其他' + (othersCount > 1 ? `（${othersCount} 个模型）` : ''), value: othersValue, color: OTHERS_COLOR, isOthers: true });
+    const sorted = [...stats.by_model].sort((a, b) => b.requests - a.requests);
+    const top = sorted.slice(0, 5);
+    const tail = sorted.slice(5);
+    const grand = sorted.reduce((s, r) => s + r.requests, 0);
+    const rows: DistRow[] = top.map((r, i) => ({ name: r.name, value: r.requests, color: colorForIndex(i), isOthers: false, tkIn: r.input_tokens, tkOut: r.output_tokens }));
+    if (tail.length > 0) {
+      rows.push({
+        name: '其他（' + tail.length + ' 个模型）',
+        value: tail.reduce((s, r) => s + r.requests, 0),
+        color: OTHERS_COLOR,
+        isOthers: true,
+        tkIn: tail.reduce((s, r) => s + r.input_tokens, 0),
+        tkOut: tail.reduce((s, r) => s + r.output_tokens, 0),
+      });
+    }
     return { rows, grand };
   }, [stats]);
 
@@ -268,7 +267,7 @@ export default function Dashboard() {
         type: 'category' as const,
         data: rev.map((r) => r.name),
         axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: '#52525b', fontSize: 10, fontFamily: 'ui-monospace, monospace', width: 118, overflow: 'truncate' as const },
+        axisLabel: { color: '#52525b', fontSize: 11, fontFamily: 'ui-monospace, monospace', width: 150, overflow: 'truncate' as const },
       },
       series: [
         {
@@ -285,7 +284,7 @@ export default function Dashboard() {
                   ]),
                 },
           })),
-          barWidth: 10,
+          barWidth: 12,
           emphasis: { itemStyle: { color: barColor(0) ? undefined : '#4338ca' } },
           label: { show: true, position: 'right' as const, color: '#71717a', fontSize: 10, fontFamily: 'ui-monospace, monospace', formatter: (p: { value: number }) => fmtCompact(p.value) },
         },
@@ -318,6 +317,17 @@ export default function Dashboard() {
         <KpiCard label="平均耗时" value={fmtLatency(t?.avg_ms ?? 0)} sub={'全渠道均值 · ' + (RANGES.find((r) => r.key === range)?.label ?? range)} dot="bg-zinc-400" />
       </div>
 
+      <Card title="运行状态">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <Stat label="模式" value={mode} badge={<Badge tone={mode === 'capture' ? 'amber' : 'cyan'}>{mode === 'capture' ? '捕获中' : '中继'}</Badge>} />
+          <Stat label="监听地址" value={cfg?.bind ?? '…'} />
+          <Stat label="端口" value={String(cfg?.resolved_port ?? cfg?.port ?? '…')} />
+          <Stat label="渠道数" value={String(sys?.channels ?? '…')} />
+          <Stat label="运行时长" value={fmtUptime(sys?.uptime ?? 0)} />
+          <Stat label="请求日志" value={cfg?.logging_enabled === '1' ? '开启' : '关闭'} />
+        </div>
+      </Card>
+
       <Card title="用量趋势" actions={<span className="text-[11px] tabular-nums text-zinc-400">按模型分色 · tokens</span>}>
         {!stats || stackedModels.length === 0 ? (
           <EmptyState text="所选范围内暂无请求。" />
@@ -336,53 +346,55 @@ export default function Dashboard() {
         )}
       </Card>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
-        <Card title="模型调用分布" className="md:col-span-2">
-          {donutOption ? (
-            <div className="flex h-[230px] items-center gap-4">
-              <div className="relative h-full w-[46%] shrink-0">
-                <EChart option={donutOption} className="h-full w-full" />
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-[22px] font-semibold tabular-nums leading-none tracking-tight text-zinc-900">
-                    {donutCenter.v}
-                    <span className="ml-0.5 text-[13px] font-medium text-zinc-400">{donutCenter.unit}</span>
-                  </span>
-                  <span className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">总请求</span>
-                </div>
+      <Card title="模型调用分布" actions={<span className="text-[11px] tabular-nums text-zinc-400">按请求次数 · Top 5 + 其他</span>}>
+        {donutOption ? (
+          <div className="flex flex-col gap-4 lg:h-[260px] lg:flex-row lg:items-center lg:gap-6">
+            <div className="relative h-[220px] w-full shrink-0 lg:h-full lg:w-[270px]">
+              <EChart option={donutOption} className="h-full w-full" />
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[22px] font-semibold tabular-nums leading-none tracking-tight text-zinc-900">
+                  {donutCenter.v}
+                  <span className="ml-0.5 text-[13px] font-medium text-zinc-400">{donutCenter.unit}</span>
+                </span>
+                <span className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">总请求</span>
               </div>
-              <div className="flex h-full min-w-0 flex-1 flex-col justify-center gap-0.5">
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-col justify-center">
+                <div className="flex items-center gap-2 border-b border-black/[0.06] px-1.5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">
+                  <span className="w-2 shrink-0" />
+                  <span className="min-w-0 flex-1">模型</span>
+                  <span className="w-12 shrink-0 text-right">占比</span>
+                  <span className="w-14 shrink-0 text-right">请求</span>
+                  <span className="hidden w-44 shrink-0 text-right sm:block">Tokens 入 / 出</span>
+                </div>
                 {dist.rows.map((r) => (
-                  <div key={r.name} className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-zinc-50" title={r.name}>
-                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: r.color }} />
-                    <span className={'min-w-0 flex-1 truncate text-[11.5px] ' + (r.isOthers ? 'text-zinc-400' : 'text-zinc-700')}>{r.name}</span>
-                    <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-zinc-400">{dist.grand > 0 && r.value > 0 ? ((r.value / dist.grand) * 100).toFixed(1) : '0.0'}%</span>
-                    <span className="w-11 shrink-0 text-right text-[11px] tabular-nums text-zinc-600">{fmtCompact(r.value)}</span>
+                  <div key={r.name} className="flex items-center gap-2 rounded-md px-1.5 py-[7px] transition-colors hover:bg-zinc-50" title={r.name}>
+                    <span className="w-2 shrink-0">
+                      <span className="block h-2 w-2 rounded-full" style={{ background: r.color }} />
+                    </span>
+                    <span className={'min-w-0 flex-1 truncate text-xs ' + (r.isOthers ? 'text-zinc-400' : 'text-zinc-700')}>{r.name}</span>
+                    <span className="w-12 shrink-0 text-right text-[11.5px] tabular-nums text-zinc-400">{dist.grand > 0 && r.value > 0 ? ((r.value / dist.grand) * 100).toFixed(1) : '0.0'}%</span>
+                    <span className="w-14 shrink-0 text-right text-[11.5px] tabular-nums text-zinc-600">{fmtCompact(r.value)}</span>
+                    <span className="hidden w-44 shrink-0 text-right text-[11.5px] tabular-nums text-zinc-500 sm:block">{fmtCompact(r.tkIn)} / {fmtCompact(r.tkOut)}</span>
                   </div>
                 ))}
               </div>
             </div>
-          ) : (
-            <EmptyState text="无数据" />
-          )}
-        </Card>
+          </div>
+        ) : (
+          <EmptyState text="无数据" />
+        )}
+      </Card>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Card title="模型排行">
-          {rankOption(stats?.by_model ?? [], modelRankColors) ? <EChart option={rankOption(stats?.by_model ?? [], modelRankColors)!} className="h-[230px] w-full" /> : <EmptyState text="无数据" />}
+          {rankOption(stats?.by_model ?? [], modelRankColors) ? <EChart option={rankOption(stats?.by_model ?? [], modelRankColors)!} className="h-[240px] w-full" /> : <EmptyState text="无数据" />}
         </Card>
         <Card title="渠道排行">
-          {rankOption(stats?.by_channel ?? []) ? <EChart option={rankOption(stats?.by_channel ?? [])!} className="h-[230px] w-full" /> : <EmptyState text="无数据" />}
+          {rankOption(stats?.by_channel ?? []) ? <EChart option={rankOption(stats?.by_channel ?? [])!} className="h-[240px] w-full" /> : <EmptyState text="无数据" />}
         </Card>
       </div>
-
-      <Card title="运行状态">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="模式" value={mode} badge={<Badge tone={mode === 'capture' ? 'amber' : 'cyan'}>{mode === 'capture' ? '捕获中' : '中继'}</Badge>} />
-          <Stat label="监听地址" value={cfg?.bind ?? '…'} />
-          <Stat label="端口" value={String(cfg?.resolved_port ?? cfg?.port ?? '…')} />
-          <Stat label="渠道数" value={String(sys?.channels ?? '…')} />
-          <Stat label="运行时长" value={fmtUptime(sys?.uptime ?? 0)} />
-          <Stat label="请求日志" value={cfg?.logging_enabled === '1' ? '开启' : '关闭'} />
-        </div>
-      </Card>
 
       <Card title="最近日志">
         {logs.length === 0 ? (
