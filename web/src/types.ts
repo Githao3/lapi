@@ -114,6 +114,7 @@ export interface UsageStats {
   rpm: number;
   tpm: number;
   trend: { bucket: number; requests: number; input_tokens: number; output_tokens: number }[];
+  trend_by_model: { bucket: number; model: string; requests: number; input_tokens: number; output_tokens: number }[];
   by_model: UsageStatName[];
   by_channel: UsageStatName[];
 }

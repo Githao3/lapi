@@ -233,6 +233,7 @@ export function collectStats(range) {
   let rpmTokens = 0;
   const fiveMinAgo = Date.now() - 5 * 60 * 1000;
   const byModel = new Map();
+  const seriesMap = new Map();
   const byChannel = new Map();
   const bump = (map, key, input, output) => {
     if (!key) return;
@@ -259,6 +260,13 @@ export function collectStats(range) {
     const bi = byIndex.get(Math.floor(r.ts / bucketMs) * bucketMs);
     if (bi != null) { trend[bi].requests++; trend[bi].input_tokens += input; trend[bi].output_tokens += output; }
     bump(byModel, r.model, input, output);
+    const bi2 = byIndex.get(Math.floor(r.ts / bucketMs) * bucketMs);
+    if (bi2 != null && r.model) {
+      const key = bi2 + '|' + r.model;
+      const e2 = seriesMap.get(key) ?? { bucket: trend[bi2].bucket, model: r.model, requests: 0, input_tokens: 0, output_tokens: 0 };
+      e2.requests++; e2.input_tokens += input; e2.output_tokens += output;
+      seriesMap.set(key, e2);
+    }
     bump(byChannel, r.channel_name, input, output);
   }
   const rank = (map) => [...map.values()].sort((a, b) => b.requests - a.requests || b.input_tokens + b.output_tokens - (a.input_tokens + a.output_tokens));
@@ -283,6 +291,7 @@ export function collectStats(range) {
     rpm: Math.round((rpmCount / 5) * 10) / 10,
     tpm: Math.round(rpmTokens / 5),
     trend,
+    trend_by_model: [...seriesMap.values()].sort((x, y) => x.bucket - y.bucket),
     by_model: rank(byModel),
     by_channel: rank(byChannel),
   };
