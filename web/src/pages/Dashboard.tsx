@@ -112,8 +112,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [range, setRange] = useState('7d');
   const [stamp, setStamp] = useState(0);
-  const [distMetric, setDistMetric] = useState<Metric>('requests');
-  const [rankMetric, setRankMetric] = useState<Metric>('requests');
+  const [distMetric, setDistMetric] = useState<Metric>('tokens');
+  const [rankMetric, setRankMetric] = useState<Metric>('tokens');
 
   useEffect(() => {
     let alive = true;
@@ -339,14 +339,6 @@ export default function Dashboard() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <KpiCard label="请求次数" value={fmtCompact(t?.requests ?? 0)} delta={delta(t?.requests ?? 0, pt?.requests)} sub={'成功率 ' + (t?.success_rate ?? 0) + '% · 失败 ' + (t?.fail ?? 0)} dot="bg-indigo-500" />
-        <KpiCard label="Tokens 输入" value={fmtCompact(t?.input_tokens ?? 0)} delta={delta(t?.input_tokens ?? 0, pt?.input_tokens)} sub={'缓存 R ' + fmtCompact(t?.cache_read ?? 0) + ' · W ' + fmtCompact(t?.cache_creation ?? 0)} dot="bg-blue-500" />
-        <KpiCard label="Tokens 输出" value={fmtCompact(t?.output_tokens ?? 0)} delta={delta(t?.output_tokens ?? 0, pt?.output_tokens)} sub={'缓存命中 ' + (hitRate != null ? hitRate + '%' : '—')} dot="bg-emerald-500" />
-        <KpiCard label="RPM / TPM" value={String(stats?.rpm ?? 0) + ' / ' + fmtCompact(stats?.tpm ?? 0)} sub="近 5 分钟均值" dot="bg-amber-500" />
-        <KpiCard label="平均耗时" value={fmtLatency(t?.avg_ms ?? 0)} sub={'全渠道均值 · ' + (RANGES.find((r) => r.key === range)?.label ?? range)} dot="bg-zinc-400" />
-      </div>
-
       <Card title="运行状态">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="模式" value={mode} badge={<Badge tone={mode === 'capture' ? 'amber' : 'cyan'}>{mode === 'capture' ? '捕获中' : '中继'}</Badge>} />
@@ -357,6 +349,14 @@ export default function Dashboard() {
           <Stat label="请求日志" value={cfg?.logging_enabled === '1' ? '开启' : '关闭'} />
         </div>
       </Card>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <KpiCard label="请求次数" value={fmtCompact(t?.requests ?? 0)} delta={delta(t?.requests ?? 0, pt?.requests)} sub={'成功率 ' + (t?.success_rate ?? 0) + '% · 失败 ' + (t?.fail ?? 0)} dot="bg-indigo-500" />
+        <KpiCard label="Tokens 输入" value={fmtCompact(t?.input_tokens ?? 0)} delta={delta(t?.input_tokens ?? 0, pt?.input_tokens)} sub={'缓存 R ' + fmtCompact(t?.cache_read ?? 0) + ' · W ' + fmtCompact(t?.cache_creation ?? 0)} dot="bg-blue-500" />
+        <KpiCard label="Tokens 输出" value={fmtCompact(t?.output_tokens ?? 0)} delta={delta(t?.output_tokens ?? 0, pt?.output_tokens)} sub={'缓存命中 ' + (hitRate != null ? hitRate + '%' : '—')} dot="bg-emerald-500" />
+        <KpiCard label="RPM / TPM" value={String(stats?.rpm ?? 0) + ' / ' + fmtCompact(stats?.tpm ?? 0)} sub="近 5 分钟均值" dot="bg-amber-500" />
+        <KpiCard label="平均耗时" value={fmtLatency(t?.avg_ms ?? 0)} sub={'全渠道均值 · ' + (RANGES.find((r) => r.key === range)?.label ?? range)} dot="bg-zinc-400" />
+      </div>
 
       <Card title="用量趋势" actions={<span className="text-[11px] tabular-nums text-zinc-400">按模型分色 · tokens</span>}>
         {!stats || stackedModels.length === 0 ? (
