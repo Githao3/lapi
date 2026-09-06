@@ -79,7 +79,7 @@ const metricVal = (r: { requests: number; input_tokens: number; output_tokens: n
 
 /** Segmented 请求/用量 control for the chart card heads (Token Atlas style). */
 function MetricSeg(props: { value: Metric; onChange: (m: Metric) => void }) {
-  const opts: [Metric, string][] = [['requests', '请求'], ['tokens', '用量']];
+  const opts: [Metric, string][] = [['tokens', '用量'], ['requests', '请求']];
   return (
     <div className="flex items-center gap-0.5 rounded-lg border border-black/[0.06] bg-zinc-100/70 p-0.5">
       {opts.map(([k, label]) => (
