@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as echarts from 'echarts';
 import { api, fmtTs, fmtUptime } from '../api';
-import type { SystemInfo, SettingsPayload, LogEntry, UsageStats } from '../types';
+import type { SystemInfo, SettingsPayload, LogEntry, UsageStats, UsageStatName } from '../types';
 import { Card, Badge, EmptyState, Button, PageHeader } from '../components/ui';
 import { EChart } from '../components/EChart';
 
@@ -71,6 +71,30 @@ const tooltipBase = {
   extraCssText: 'box-shadow: 0 8px 24px rgba(0,0,0,0.12); border-radius: 10px;',
 };
 
+type Metric = 'requests' | 'tokens';
+
+/** Value of a usage row under the active metric: request counts or total tokens. */
+const metricVal = (r: { requests: number; input_tokens: number; output_tokens: number }, m: Metric) =>
+  m === 'tokens' ? r.input_tokens + r.output_tokens : r.requests;
+
+/** Segmented 请求/用量 control for the chart card heads (Token Atlas style). */
+function MetricSeg(props: { value: Metric; onChange: (m: Metric) => void }) {
+  const opts: [Metric, string][] = [['requests', '请求'], ['tokens', '用量']];
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg border border-black/[0.06] bg-zinc-100/70 p-0.5">
+      {opts.map(([k, label]) => (
+        <button
+          key={k}
+          onClick={() => props.onChange(k)}
+          className={'rounded-md px-2 py-[3px] text-[11px] font-medium transition-all ' + (props.value === k ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-400 transition-colors hover:text-zinc-600')}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** A distribution row: donut slice + legend list entry share color and value. */
 interface DistRow {
   name: string;
@@ -88,6 +112,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [range, setRange] = useState('7d');
   const [stamp, setStamp] = useState(0);
+  const [distMetric, setDistMetric] = useState<Metric>('requests');
+  const [rankMetric, setRankMetric] = useState<Metric>('requests');
 
   useEffect(() => {
     let alive = true;
@@ -112,18 +138,23 @@ export default function Dashboard() {
     return denom > 0 ? Math.round(((t?.cache_read ?? 0) / denom) * 1000) / 10 : null;
   }, [t]);
 
-  // ---- distribution rows: top 5 models by requests + grey Others (shared by donut & list) ----
+  // Per-model palette keyed off the requests-desc order (server order), so a
+  // model keeps its color across donut, list and rankings in either metric.
+  const modelColor = useMemo(() => new Map((stats?.by_model ?? []).map((r, i) => [r.name, colorForIndex(i)])), [stats]);
+
+  // ---- distribution rows: top 5 models by the active metric + grey Others ----
   const dist = useMemo<{ rows: DistRow[]; grand: number }>(() => {
     if (!stats || stats.by_model.length === 0) return { rows: [], grand: 0 };
-    const sorted = [...stats.by_model].sort((a, b) => b.requests - a.requests);
+    const val = (r: UsageStatName) => metricVal(r, distMetric);
+    const sorted = [...stats.by_model].sort((a, b) => val(b) - val(a));
     const top = sorted.slice(0, 5);
     const tail = sorted.slice(5);
-    const grand = sorted.reduce((s, r) => s + r.requests, 0);
-    const rows: DistRow[] = top.map((r, i) => ({ name: r.name, value: r.requests, color: colorForIndex(i), isOthers: false, tkIn: r.input_tokens, tkOut: r.output_tokens }));
+    const grand = sorted.reduce((s, r) => s + val(r), 0);
+    const rows: DistRow[] = top.map((r) => ({ name: r.name, value: val(r), color: modelColor.get(r.name) ?? OTHERS_COLOR, isOthers: false, tkIn: r.input_tokens, tkOut: r.output_tokens }));
     if (tail.length > 0) {
       rows.push({
         name: '其他（' + tail.length + ' 个模型）',
-        value: tail.reduce((s, r) => s + r.requests, 0),
+        value: tail.reduce((s, r) => s + val(r), 0),
         color: OTHERS_COLOR,
         isOthers: true,
         tkIn: tail.reduce((s, r) => s + r.input_tokens, 0),
@@ -131,7 +162,7 @@ export default function Dashboard() {
       });
     }
     return { rows, grand };
-  }, [stats]);
+  }, [stats, distMetric, modelColor]);
 
   // ---- usage trend: stacked tokens per model per bucket ----
   const stackedModels = useMemo(() => {
@@ -213,7 +244,7 @@ export default function Dashboard() {
         ...tooltipBase,
         formatter: (p: { name: string; value: number; percent: number }) => {
           const row = stats?.by_model.find((r) => r.name === p.name);
-          let html = '<b>' + p.name + '</b><br>' + fmtCompact(p.value) + ' 次 · ' + p.percent + '%';
+          let html = '<b>' + p.name + '</b><br>' + fmtCompact(p.value) + (distMetric === 'tokens' ? ' tokens' : ' 次') + ' · ' + p.percent + '%';
           if (row) html += '<br>tokens ' + fmtCompact(row.input_tokens) + ' / ' + fmtCompact(row.output_tokens);
           return html;
         },
@@ -235,20 +266,17 @@ export default function Dashboard() {
         },
       ],
     };
-  }, [dist, stats]);
+  }, [dist, stats, distMetric]);
 
-  const donutCenter = useMemo(() => {
-    const totalReq = stats?.by_model.reduce((s, r) => s + r.requests, 0) ?? 0;
-    return splitValue(totalReq);
-  }, [stats]);
+  const donutCenter = useMemo(() => splitValue(dist.grand), [dist]);
 
-  // ---- ranking horizontal bars; models reuse the distribution palette ----
-  const rankOption = (rows: { name: string; requests: number; input_tokens: number; output_tokens: number }[], colors?: string[]) => {
+  // ---- ranking horizontal bars; models reuse the per-model palette, channels the indigo gradient ----
+  const rankOption = (rows: UsageStatName[], metric: Metric, colorOf?: (name: string) => string | undefined) => {
     if (rows.length === 0) return null;
-    const top = rows.slice(0, 6);
-    const max = Math.max(1, ...top.map((r) => r.requests));
+    const top = [...rows].sort((a, b) => metricVal(b, metric) - metricVal(a, metric)).slice(0, 6);
+    const max = Math.max(1, ...top.map((r) => metricVal(r, metric)));
     const rev = [...top].reverse();
-    const barColor = (i: number) => (colors ? colors[top.length - 1 - i] : undefined);
+    const colorAt = (i: number) => colorOf?.(rev[i].name);
     return {
       tooltip: {
         trigger: 'item' as const,
@@ -258,7 +286,11 @@ export default function Dashboard() {
         formatter: (p: { name: string; value: number }) => {
           const r = top.find((x) => x.name === p.name);
           if (!r) return p.name;
-          return '<b>' + p.name + '</b><br>' + fmtCompact(r.requests) + ' 次 · tokens ' + fmtCompact(r.input_tokens) + ' / ' + fmtCompact(r.output_tokens);
+          const primary = '<b>' + p.name + '</b><br>' + fmtCompact(metricVal(r, metric)) + (metric === 'tokens' ? ' tokens' : ' 次');
+          const second = metric === 'tokens'
+            ? '请求 ' + fmtCompact(r.requests) + ' 次'
+            : 'tokens ' + fmtCompact(r.input_tokens) + ' / ' + fmtCompact(r.output_tokens);
+          return primary + '<br>' + second;
         },
       },
       grid: { top: 6, bottom: 4, left: 8, right: 42, containLabel: true },
@@ -273,9 +305,9 @@ export default function Dashboard() {
         {
           type: 'bar' as const,
           data: rev.map((r, i) => ({
-            value: r.requests,
-            itemStyle: barColor(i)
-              ? { borderRadius: 5, color: barColor(i) }
+            value: metricVal(r, metric),
+            itemStyle: colorAt(i)
+              ? { borderRadius: 5, color: colorAt(i) }
               : {
                   borderRadius: 5,
                   color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
@@ -285,14 +317,12 @@ export default function Dashboard() {
                 },
           })),
           barWidth: 12,
-          emphasis: { itemStyle: { color: barColor(0) ? undefined : '#4338ca' } },
+          emphasis: { itemStyle: { color: colorOf ? undefined : '#4338ca' } },
           label: { show: true, position: 'right' as const, color: '#71717a', fontSize: 10, fontFamily: 'ui-monospace, monospace', formatter: (p: { value: number }) => fmtCompact(p.value) },
         },
       ],
     };
   };
-
-  const modelRankColors = (stats?.by_model ?? []).slice(0, 6).map((_, i) => colorForIndex(i));
 
   return (
     <div className="space-y-5">
@@ -346,7 +376,7 @@ export default function Dashboard() {
         )}
       </Card>
 
-      <Card title="模型调用分布" actions={<span className="text-[11px] tabular-nums text-zinc-400">按请求次数 · Top 5 + 其他</span>}>
+      <Card title="模型调用分布" actions={<MetricSeg value={distMetric} onChange={setDistMetric} />}>
         {donutOption ? (
           <div className="flex flex-col gap-4 lg:h-[260px] lg:flex-row lg:items-center lg:gap-6">
             <div className="relative h-[220px] w-full shrink-0 lg:h-full lg:w-[270px]">
@@ -356,7 +386,7 @@ export default function Dashboard() {
                   {donutCenter.v}
                   <span className="ml-0.5 text-[13px] font-medium text-zinc-400">{donutCenter.unit}</span>
                 </span>
-                <span className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">总请求</span>
+                <span className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">{distMetric === 'tokens' ? '总 Tokens' : '总请求'}</span>
               </div>
             </div>
             <div className="min-w-0 flex-1">
@@ -365,7 +395,7 @@ export default function Dashboard() {
                   <span className="w-2 shrink-0" />
                   <span className="min-w-0 flex-1">模型</span>
                   <span className="w-12 shrink-0 text-right">占比</span>
-                  <span className="w-14 shrink-0 text-right">请求</span>
+                  <span className="w-14 shrink-0 text-right">{distMetric === 'tokens' ? 'Tokens' : '请求'}</span>
                   <span className="hidden w-44 shrink-0 text-right sm:block">Tokens 入 / 出</span>
                 </div>
                 {dist.rows.map((r) => (
@@ -388,11 +418,11 @@ export default function Dashboard() {
       </Card>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Card title="模型排行">
-          {rankOption(stats?.by_model ?? [], modelRankColors) ? <EChart option={rankOption(stats?.by_model ?? [], modelRankColors)!} className="h-[240px] w-full" /> : <EmptyState text="无数据" />}
+        <Card title="模型排行" actions={<MetricSeg value={rankMetric} onChange={setRankMetric} />}>
+          {rankOption(stats?.by_model ?? [], rankMetric, (n) => modelColor.get(n)) ? <EChart option={rankOption(stats?.by_model ?? [], rankMetric, (n) => modelColor.get(n))!} className="h-[240px] w-full" /> : <EmptyState text="无数据" />}
         </Card>
-        <Card title="渠道排行">
-          {rankOption(stats?.by_channel ?? []) ? <EChart option={rankOption(stats?.by_channel ?? [])!} className="h-[240px] w-full" /> : <EmptyState text="无数据" />}
+        <Card title="渠道排行" actions={<MetricSeg value={rankMetric} onChange={setRankMetric} />}>
+          {rankOption(stats?.by_channel ?? [], rankMetric) ? <EChart option={rankOption(stats?.by_channel ?? [], rankMetric)!} className="h-[240px] w-full" /> : <EmptyState text="无数据" />}
         </Card>
       </div>
 
