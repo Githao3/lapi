@@ -6,6 +6,8 @@ services:
       args:
         # 国内服务器在 .env 里设 NPM_REGISTRY=https://registry.npmmirror.com 可显著加快构建
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+        # 内存紧张的服务器在 .env 里设 SKIP_WEB_BUILD=1（前端产物在宿主机构建好后上传）
+        SKIP_WEB_BUILD: ${SKIP_WEB_BUILD:-0}
     image: lapi:latest
     container_name: lapi
     restart: unless-stopped

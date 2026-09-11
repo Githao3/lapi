@@ -49,6 +49,17 @@ docker compose logs -f --tail=50
 有专属地址，写进 `/etc/docker/daemon.json` 的 `registry-mirrors`）；装 npm 依赖慢就在
 `.env` 里取消 `NPM_REGISTRY=https://registry.npmmirror.com` 的注释再重新 build。
 
+服务器内存紧张（vite 打包峰值要几百 MB，1.6G 小机器上跑别的服务时会拖垮整机）就用低内存模式：
+在本机 `pnpm build` 出 `web/dist`，把它和代码一起上传，然后在 `.env` 里设 `SKIP_WEB_BUILD=1`。
+这样镜像内只装生产依赖（express/undici，几十 MB），完全不跑 vite。
+
+```bash
+# 本机
+pnpm build && scp -r web/dist user@服务器:/opt/lapi/web/
+# 服务器
+cd /opt/lapi/deploy && echo 'SKIP_WEB_BUILD=1' >> .env && docker compose up -d --build
+```
+
 启动后容器只监听宿主机 `127.0.0.1:8787`（见 `docker-compose.yml` 的 ports），
 公网入口全部交给 Caddy：
 
