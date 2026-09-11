@@ -67,15 +67,30 @@ const DEFAULTS = {
   port: '8787',
   bind: '127.0.0.1',
   gateway_token: '',
+  admin_password: '',
   capture_enabled: '0',
   logging_enabled: '1',
   upstream_proxy: '',
   upstream_proxy_bypass: '',
 };
 
+// Deployment bootstrap: a container/host has no way to use the settings UI before
+// it can reach it, so these four may be seeded from the environment. A DB row
+// written by the Settings page always wins; env only fills the gap before that.
+const ENV_DEFAULTS = {
+  bind: 'LAPI_BIND',
+  port: 'LAPI_PORT',
+  gateway_token: 'LAPI_GATEWAY_TOKEN',
+  admin_password: 'LAPI_ADMIN_PASSWORD',
+};
+
 export function getSetting(key) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : (DEFAULTS[key] ?? '');
+  if (row) return row.value;
+  const envName = ENV_DEFAULTS[key];
+  const env = envName ? process.env[envName] : undefined;
+  if (env != null && String(env) !== '') return String(env);
+  return DEFAULTS[key] ?? '';
 }
 
 export function setSetting(key, value) {
@@ -86,13 +101,12 @@ export function setSetting(key, value) {
 }
 
 export function allSettings() {
-  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const keys = new Set(Object.keys(DEFAULTS));
+  for (const r of db.prepare('SELECT key FROM settings').all()) keys.add(r.key);
   const out = {};
-  for (const r of rows) {
-    out[r.key] = r.value;
-  }
-  for (const k of Object.keys(DEFAULTS)) {
-    if (!(k in out)) out[k] = DEFAULTS[k];
+  for (const k of keys) {
+    if (k === 'admin_password') continue; // never leaves the server
+    out[k] = getSetting(k);
   }
   return out;
 }

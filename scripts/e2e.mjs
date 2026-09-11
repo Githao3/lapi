@@ -442,7 +442,89 @@ try {
       ok(fake.counts['trunc-resp'] === 1, 'P never retried after bytes, got ' + fake.counts['trunc-resp']);
     }
 
-    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q');
+    // R: exposed bind — user key guards the relay, admin password guards the panel,
+    //    and neither credential can be swapped for the other.
+    {
+      const putCfg = (body, auth) =>
+        fetch(base + '/api/config', {
+          method: 'PUT',
+          headers: auth ? { ...headers, authorization: auth } : headers,
+          body: JSON.stringify(body),
+        });
+      await putCfg({ bind: '0.0.0.0', gateway_token: 'sk-user-e2e', admin_password: 'admin-e2e-pw' });
+
+      const relayNoKey = await fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      ok(relayNoKey.status === 401, 'R relay without key -> 401, got ' + relayNoKey.status);
+      const j401 = await relayNoKey.json();
+      ok(j401?.error?.type === 'authentication_error', 'R anthropic-shaped auth error');
+      ok(!String(j401?.error?.message ?? '').includes('sk-user-e2e'), 'R error never echoes the key');
+
+      const relayBadKey = await fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers: { ...headers, 'x-api-key': 'sk-wrong' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      ok(relayBadKey.status === 401, 'R relay with wrong key -> 401, got ' + relayBadKey.status);
+
+      const relayOk = await fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers: { ...headers, 'x-api-key': 'sk-user-e2e' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      ok(relayOk.status === 200, 'R relay with the user key succeeds, got ' + relayOk.status);
+
+      ok((await fetch(base + '/v1/models')).status === 401, 'R /v1/models is guarded too');
+      const modelsOk = await fetch(base + '/v1/models', { headers: { authorization: 'Bearer sk-user-e2e' } });
+      ok(modelsOk.status === 200, 'R /v1/models accepts the user key');
+
+      const asUser = await fetch(base + '/api/channels', { headers: { authorization: 'Bearer sk-user-e2e' } });
+      ok(asUser.status === 401, 'R user key cannot open the admin API, got ' + asUser.status);
+
+      const badLogin = await fetch(base + '/api/login', { method: 'POST', headers, body: JSON.stringify({ password: 'wrong' }) });
+      ok(badLogin.status === 401, 'R wrong panel password -> 401');
+
+      const login = await fetch(base + '/api/login', { method: 'POST', headers, body: JSON.stringify({ password: 'admin-e2e-pw' }) });
+      ok(login.status === 200, 'R panel login accepted');
+      const { session } = await login.json();
+      ok(typeof session === 'string' && session.length === 64, 'R session token issued');
+
+      const adminCall = await fetch(base + '/api/channels', { headers: { authorization: 'Bearer ' + session } });
+      ok(adminCall.status === 200, 'R session opens the admin API');
+
+      const cfgAuthed = await (await fetch(base + '/api/config', { headers: { authorization: 'Bearer ' + session } })).json();
+      ok(cfgAuthed.admin_password === undefined, 'R admin password is never returned');
+      ok(cfgAuthed.has_admin_password === true, 'R panel learns only that a password exists');
+      ok(cfgAuthed.gateway_token === 'sk-user-e2e', 'R relay key stays readable for the admin');
+
+      const sessProbe = await (await fetch(base + '/api/session', { headers: { authorization: 'Bearer ' + session } })).json();
+      ok(sessProbe.auth_required === true && sessProbe.authed === true, 'R session probe reports an authed admin');
+
+      const logout = await fetch(base + '/api/logout', { method: 'POST', headers: { authorization: 'Bearer ' + session } });
+      ok(logout.status === 200, 'R logout accepted');
+      const sessAfter = await (await fetch(base + '/api/session', { headers: { authorization: 'Bearer ' + session } })).json();
+      ok(sessAfter.authed === false, 'R session is dead after logout');
+      ok((await fetch(base + '/api/channels', { headers: { authorization: 'Bearer ' + session } })).status === 401, 'R revoked session closes the admin API');
+
+      // Re-login to put the bind back, then confirm the owner's local workflow stays
+      // credential-free exactly as before.
+      const login2 = await fetch(base + '/api/login', { method: 'POST', headers, body: JSON.stringify({ password: 'admin-e2e-pw' }) });
+      const { session: session2 } = await login2.json();
+      await putCfg({ bind: '127.0.0.1' }, 'Bearer ' + session2);
+
+      const localRelay = await fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      ok(localRelay.status === 200, 'R loopback bind needs no key, got ' + localRelay.status);
+      ok((await fetch(base + '/api/channels')).status === 200, 'R loopback panel needs no login');
+    }
+
+    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R');
     console.log('[e2e] ALL ASSERTIONS PASSED');
   } finally {
     console.log('[e2e][child-out]\n' + childOutput);

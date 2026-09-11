@@ -1,0 +1,24 @@
+services:
+  lapi:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: lapi:latest
+    container_name: lapi
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # 容器内必须监听 0.0.0.0，否则宿主机的端口映射进不来。
+      LAPI_BIND: 0.0.0.0
+      LAPI_DB: /data/lapi.db
+    ports:
+      # 只绑到宿主机回环：公网入口交给 Caddy/Nginx 做 TLS，容器端口不直接暴露。
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

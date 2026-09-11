@@ -18,7 +18,7 @@ import { captureIsEnabled } from './capture.js';
 import { normalizeUpstreamUrl } from './relay-lib.js';
 import { fetchModelsList } from './model-fetch.js';
 
-const SETTING_KEYS = ['port', 'bind', 'gateway_token', 'logging_enabled', 'upstream_proxy', 'upstream_proxy_bypass'];
+const SETTING_KEYS = ['port', 'bind', 'gateway_token', 'admin_password', 'logging_enabled', 'upstream_proxy', 'upstream_proxy_bypass'];
 
 // Custom UA presets saved from the capture page (built-ins stay in presets-data.mjs).
 const CUSTOM_UA_KEY = 'custom_ua_presets';
@@ -45,15 +45,25 @@ function presetsPayloadWithCustom() {
 export function attachCrud(app) {
   app.get('/api/config', (req, res) => {
     const s = allSettings();
-    s.resolved_port = getSetting('port');
+    s.resolved_port = getSetting('port');
+    // admin_password never leaves the server; the panel only learns whether one exists.
+    s.has_admin_password = !!getSetting('admin_password');
+    s.has_gateway_token = !!getSetting('gateway_token');
     res.json(s);
   });
 
   app.put('/api/config', (req, res) => {
     const body = req.body ?? {};
     for (const k of Object.keys(body)) {
-      if (SETTING_KEYS.includes(k)) setSetting(k, body[k]);
+      if (!SETTING_KEYS.includes(k)) continue;
+      const v = String(body[k]);
+      // Secrets: an empty field means "leave as is" so saving the form cannot
+      // silently wipe the credential that protects a public deployment.
+      if ((k === 'admin_password' || k === 'gateway_token') && v === '') continue;
+      setSetting(k, v);
     }
+    if (body.admin_password_clear) setSetting('admin_password', '');
+    if (body.gateway_token_clear) setSetting('gateway_token', '');
     res.json({ ok: true });
   });
 

@@ -6,6 +6,9 @@ import Capture from './pages/Capture';
 import Settings from './pages/Settings';
 import Logs from './pages/Logs';
 import Models from './pages/Models';
+import Login from './pages/Login';
+import { api, onUnauthorized, setSessionToken } from './api';
+import type { SessionInfo } from './types';
 
 type Page = 'dashboard' | 'channels' | 'models' | 'presets' | 'capture' | 'settings' | 'logs';
 
@@ -49,6 +52,21 @@ const NAV: { key: Page; label: string; desc: string }[] = [
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
+  const [sess, setSess] = useState<SessionInfo | null>(null);
+
+  const refreshSession = () => {
+    api
+      .getSession()
+      .then(setSess)
+      .catch(() =>
+        // Backend unreachable: fall through to the login screen, which reports the error.
+        setSess({ ok: false, local: false, auth_required: true, configured: true, authed: false })
+      );
+  };
+
+  useEffect(refreshSession, []);
+  useEffect(() => onUnauthorized(() => setSess((s) => (s ? { ...s, authed: false } : s))), []);
+
   useEffect(() => {
     const onGo = (e: Event) => {
       const p = (e as CustomEvent).detail;
@@ -58,7 +76,26 @@ export default function App() {
     return () => window.removeEventListener('lapi-goto', onGo);
   }, []);
 
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      /* session may already be gone */
+    }
+    setSessionToken('');
+    setSess((s) => (s ? { ...s, authed: false } : s));
+  };
+
   const current = NAV.find((n) => n.key === page);
+
+  if (!sess) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-zinc-400">连接中…</div>
+    );
+  }
+  if (sess.auth_required && !sess.authed) {
+    return <Login configured={sess.configured} onSuccess={refreshSession} />;
+  }
 
   return (
     <div className="flex h-full min-h-screen">
@@ -107,8 +144,16 @@ export default function App() {
         <div className="mt-auto px-3 pb-1">
           <div className="rounded-xl bg-zinc-100/70 px-3 py-2.5 ring-1 ring-black/[0.04]">
             <div className="text-[11px] leading-4 text-zinc-500">
-              工具的 key 随便填；真正生效的是渠道里存的 key。
+              使用者只拿到「用户 key」，只能调用转发；上游渠道与 key 需管理密码登录才能查看。
             </div>
+            {sess.auth_required && (
+              <button
+                onClick={logout}
+                className="mt-2 text-[11px] font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-2 transition-colors hover:text-zinc-800"
+              >
+                退出登录
+              </button>
+            )}
           </div>
         </div>
       </aside>
