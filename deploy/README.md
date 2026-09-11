@@ -45,6 +45,10 @@ docker compose up -d --build
 docker compose logs -f --tail=50
 ```
 
+构建慢或超时（国内服务器常见）：拉基础镜像慢就给 Docker 配镜像加速器（各云厂商控制台
+有专属地址，写进 `/etc/docker/daemon.json` 的 `registry-mirrors`）；装 npm 依赖慢就在
+`.env` 里取消 `NPM_REGISTRY=https://registry.npmmirror.com` 的注释再重新 build。
+
 启动后容器只监听宿主机 `127.0.0.1:8787`（见 `docker-compose.yml` 的 ports），
 公网入口全部交给 Caddy：
 
@@ -52,11 +56,25 @@ docker compose logs -f --tail=50
 curl -sS http://127.0.0.1:8787/api/session   # 应返回 {"ok":true,...,"auth_required":true}
 ```
 
+宿主机 8787 已被别的程序占用时，把 `docker-compose.yml` 里映射的**左边**数字改掉
+（如 `127.0.0.1:18787:8787`），Caddyfile 里的 `reverse_proxy` 目标同步改；容器内的
+`LAPI_PORT` 保持 8787 不动。
+
 ### 4. 配 HTTPS 入口
+
+装了 Caddy 的话：
 
 ```bash
 sudo cp Caddyfile /etc/caddy/Caddyfile      # 先把域名替换成你自己的
 sudo systemctl reload caddy
+```
+
+不想在宿主机装 Caddy，就用容器跑（占宿主机 80/443，反代到宿主回环的 8787）：
+
+```bash
+docker run -d --name caddy --restart unless-stopped --network host \
+  -v /opt/lapi/deploy/Caddyfile:/etc/caddy/Caddyfile:ro \
+  -v caddy_data:/data -v caddy_config:/config caddy:2
 ```
 
 Nginx 用户注意两点：`proxy_buffering off;`（SSE 必需）和放宽 `proxy_read_timeout`。
@@ -125,5 +143,8 @@ docker compose restart      # 重新落到 .env 里的 LAPI_ADMIN_PASSWORD
 | 转发返回 503 `requires a relay key` | 同上，缺 `LAPI_GATEWAY_TOKEN` |
 | 转发返回 401 `invalid gateway key` | 使用者填错 key：要填**用户 key**，不是管理密码 |
 | 登录返回 429 | 密码连续输错触发了限速，等提示的秒数或改 `.env` 里的密码 |
+| `docker build` 卡在 npm 或超时 | 国内网络：`.env` 里启用 `NPM_REGISTRY=https://registry.npmmirror.com` |
+| `docker pull` 拉不动基础镜像 | 给 Docker 配 `registry-mirrors`（用云厂商控制台给的专属加速地址） |
+| 容器起了但 `curl 127.0.0.1:8787` 连不上 | 看 `docker compose logs`；多半是宿主机端口被占，改映射左侧端口 |
 | 流式回答变成一次性输出 | 反代缓冲了 SSE：Caddy 用 `flush_interval -1`，Nginx 用 `proxy_buffering off` |
 | 端口和预期不一致 | 端口被占用时服务会自动顺延并写回设置；`docker-compose.yml` 的映射要跟着改 |

@@ -3,6 +3,9 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        # 国内服务器在 .env 里设 NPM_REGISTRY=https://registry.npmmirror.com 可显著加快构建
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     image: lapi:latest
     container_name: lapi
     restart: unless-stopped
@@ -14,6 +17,7 @@ services:
       LAPI_DB: /data/lapi.db
     ports:
       # 只绑到宿主机回环：公网入口交给 Caddy/Nginx 做 TLS，容器端口不直接暴露。
+      # 宿主机 8787 被占用时改左边的数字即可（右边的容器内端口保持 8787）。
       - "127.0.0.1:8787:8787"
     volumes:
       - ./data:/data

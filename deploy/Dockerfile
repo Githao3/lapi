@@ -1,7 +1,9 @@
 # ---------- build stage: compile the web console ----------
 FROM node:24-alpine AS build
+# 国内服务器可传 --build-arg NPM_REGISTRY=https://registry.npmmirror.com 加快依赖安装
+ARG NPM_REGISTRY=https://registry.npmjs.org
 WORKDIR /app
-RUN npm install -g pnpm@10
+RUN npm config set registry "$NPM_REGISTRY" && npm install -g pnpm@10 && pnpm config set registry "$NPM_REGISTRY"
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
@@ -9,10 +11,11 @@ RUN pnpm build
 
 # ---------- runtime: relay + console, no dev tooling ----------
 FROM node:24-alpine
+ARG NPM_REGISTRY=https://registry.npmjs.org
 WORKDIR /app
 ENV NODE_ENV=production \
     LAPI_DB=/data/lapi.db
-RUN npm install -g pnpm@10
+RUN npm config set registry "$NPM_REGISTRY" && npm install -g pnpm@10 && pnpm config set registry "$NPM_REGISTRY"
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod && pnpm store prune
 COPY server ./server
