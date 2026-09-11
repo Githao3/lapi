@@ -88,7 +88,35 @@ docker run -d --name caddy --restart unless-stopped --network host \
   -v caddy_data:/data -v caddy_config:/config caddy:2
 ```
 
-Nginx 用户注意两点：`proxy_buffering off;`（SSE 必需）和放宽 `proxy_read_timeout`。
+Nginx 用户用这段（要点是 SSE 不缓冲，否则流式回答会变成一次性输出）：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name 你的域名;
+
+    ssl_certificate     /path/fullchain.pem;
+    ssl_certificate_key /path/privkey.pem;
+
+    client_max_body_size 50m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_buffering off;        # SSE 必需
+        proxy_cache off;
+        gzip off;
+        proxy_read_timeout 3600s;   # 长回答
+        proxy_send_timeout 3600s;
+        chunked_transfer_encoding on;
+    }
+}
+```
 
 浏览器打开 `https://你的域名`，用**管理密码**登录面板，在「渠道」页添加上游渠道。
 
