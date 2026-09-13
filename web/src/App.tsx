@@ -90,6 +90,7 @@ export default function App() {
   };
 
   const current = NAV.find((n) => n.key === page);
+  const isPlayground = page === 'playground';
 
   if (!sess) {
     return (
@@ -161,22 +162,29 @@ export default function App() {
         </div>
       </aside>
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-8 py-9">
-          <div className="mb-6 flex items-baseline gap-3">
-            <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">
-              lapi console
-            </span>
-            <span className="h-px flex-1 bg-gradient-to-r from-black/[0.08] to-transparent" />
-            <span className="text-[11px] text-zinc-400">{current?.desc}</span>
-          </div>
-          {page === 'dashboard' && <Dashboard />}
-          {page === 'channels' && <Channels />}
-          {page === 'models' && <Models />}
-          {page === 'playground' && <Playground />}
-          {page === 'presets' && <Presets />}
-          {page === 'capture' && <Capture />}
-          {page === 'settings' && <Settings />}
-          {page === 'logs' && <Logs />}
+        <div className={isPlayground ? 'mx-auto flex h-full w-full max-w-4xl flex-col px-6 pb-4 pt-4' : 'mx-auto max-w-6xl px-8 py-9'}>
+          {!isPlayground && (
+            <div className="mb-6 flex items-baseline gap-3">
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">
+                lapi console
+              </span>
+              <span className="h-px flex-1 bg-gradient-to-r from-black/[0.08] to-transparent" />
+              <span className="text-[11px] text-zinc-400">{current?.desc}</span>
+            </div>
+          )}
+          {isPlayground ? (
+            <Playground />
+          ) : (
+            <>
+              {page === 'dashboard' && <Dashboard />}
+              {page === 'channels' && <Channels />}
+              {page === 'models' && <Models />}
+              {page === 'presets' && <Presets />}
+              {page === 'capture' && <Capture />}
+              {page === 'settings' && <Settings />}
+              {page === 'logs' && <Logs />}
+            </>
+          )}
         </div>
       </main>
     </div>
