@@ -3,7 +3,7 @@ import { api } from '../api';
 import type { SettingsPayload } from '../types';
 import { Card, Field, Button, Note, Badge, PageHeader, inputCls } from '../components/ui';
 
-const BIND_HINT = '绑定 127.0.0.1（仅本机）时面板与转发都免鉴权；绑定其他地址（如 0.0.0.0 对外提供）时，两套凭据都必须设置。';
+const BIND_HINT = '绑定 127.0.0.1（仅本机）时面板与转发都免鉴权；绑定其他地址（如 0.0.0.0 对外提供）时，两套凭据都必须设置。改动需重启服务后生效。';
 const PORT_HINT = '端口改动需重启服务后生效。';
 
 export default function Settings() {
@@ -42,7 +42,8 @@ export default function Settings() {
       await api.putConfig({ port, bind, logging_enabled: logging ? '1' : '0' });
       const nonLocal = bind !== '127.0.0.1' && bind !== 'localhost' && bind !== '::1';
       const missing = !token.trim() || !(cfg?.has_admin_password || adminPw.trim());
-      setMsg('已保存。' + (nonLocal && missing ? '（注意：对外绑定还缺凭据，详见下方「访问凭据」。）' : '') + (port !== (cfg?.port ?? '8787') ? ' 端口改动需重启。' : ''));
+      const networkChanged = port !== (cfg?.port ?? '8787') || bind !== (cfg?.bind ?? '127.0.0.1');
+      setMsg('已保存。' + (nonLocal && missing ? '（注意：对外绑定还缺凭据，详见下方「访问凭据」。）' : '') + (networkChanged ? ' 绑定/端口改动需重启服务后生效。' : ''));
       load();
     } catch (e) {
       setMsg('保存失败：' + String(e));
