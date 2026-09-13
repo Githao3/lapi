@@ -113,6 +113,9 @@ export const api = {
   saveUaPreset: (ua: string) => j<{ ok: boolean; added?: boolean; uaPresetsCustom?: string[] }>(authFetch('/api/ua-presets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ua }) })),
   deleteUaPreset: (ua: string) => j<{ ok: boolean; removed?: boolean; uaPresetsCustom?: string[] }>(authFetch('/api/ua-presets?ua=' + encodeURIComponent(ua), { method: 'DELETE' })),
   getStats: (range: string) => j<UsageStats>(authFetch('/api/stats?range=' + encodeURIComponent(range))),
+  // Raw Response on purpose: the playground reads the SSE stream off it itself.
+  playgroundChat: (body: Record<string, unknown>, signal?: AbortSignal) =>
+    authFetch('/api/playground/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal }),
   getModelsCatalog: () => j<ModelsCatalogEntry[]>(authFetch('/api/models-catalog')),
   listLogs: (limit?: number) => j<LogEntry[]>(authFetch('/api/logs?limit=' + (limit ?? 100))),
   getSystem: () => j<SystemInfo>(authFetch('/api/system')),

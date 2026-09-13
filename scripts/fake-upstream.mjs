@@ -196,6 +196,23 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (u.pathname === '/v1/chat/completions') {
+    if (m.includes('slow-sse')) {
+      // Slow drip so a client abort lands mid-stream; stops dripping when the client leaves.
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      let i = 0;
+      const timer = setInterval(() => {
+        i += 1;
+        if (i > 6) {
+          clearInterval(timer);
+          res.write('data: [DONE]\n\n');
+          res.end();
+          return;
+        }
+        res.write('data: {"choices":[{"index":0,"delta":{"content":"tick' + i + '"}}]}\n\n');
+      }, 120);
+      req.on('close', () => clearInterval(timer));
+      return;
+    }
     if (m.includes('sse-chat')) {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       for (let i=0; i<3; i++) {

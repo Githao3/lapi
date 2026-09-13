@@ -17,6 +17,7 @@ import { listPresets, presetToChannel } from './presets.js';
 import { captureIsEnabled } from './capture.js';
 import { normalizeUpstreamUrl } from './relay-lib.js';
 import { fetchModelsList } from './model-fetch.js';
+import { handleRelayRequest } from './relay.js';
 
 const SETTING_KEYS = ['port', 'bind', 'gateway_token', 'admin_password', 'logging_enabled', 'upstream_proxy', 'upstream_proxy_bypass'];
 
@@ -176,6 +177,29 @@ export function attachCrud(app) {
 
   app.get('/api/stats', (req, res) => {
     res.json(collectStats(String(req.query.range ?? '7d')));
+  });
+
+  // Playground: the panel chats through the full relay pipeline (channel pick,
+  // header rewrite, cross-format conversion, usage logging) without needing the
+  // user key. Capture mode is bypassed — this page wants answers, not a header
+  // inspection, and its requests would otherwise be swallowed while capturing.
+  app.post('/api/playground/chat', (req, res) => {
+    const body = req.body ?? {};
+    const model = String(body.model ?? '').trim();
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    if (!model) {
+      res.status(400).json({ ok: false, error: '缺少 model' });
+      return;
+    }
+    if (!messages.length) {
+      res.status(400).json({ ok: false, error: 'messages 为空' });
+      return;
+    }
+    const payload = { model, messages, stream: body.stream !== false };
+    if (body.temperature != null && Number.isFinite(Number(body.temperature))) payload.temperature = Number(body.temperature);
+    if (body.max_tokens != null && Number.isFinite(Number(body.max_tokens))) payload.max_tokens = Number(body.max_tokens);
+    req.body = payload;
+    handleRelayRequest(req, res, 'openai', 'chat', { skipCapture: true });
   });
 
   app.get('/api/models-catalog', (req, res) => {

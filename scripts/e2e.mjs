@@ -45,7 +45,7 @@ async function seedChannels(base) {
     name: 'openai-e2e',
     protocol: 'openai',
     base_url: 'http://127.0.0.1:8999',
-    models: 'gpt-4o,img-echo,sse-tools-chat,tool-chat',
+    models: 'gpt-4o,img-echo,sse-chat,slow-sse,sse-tools-chat,tool-chat',
     api_key: 'sk-up-67890',
     auth_mode: 'x-api-key',
     enabled: true,
@@ -524,7 +524,68 @@ try {
       ok((await fetch(base + '/api/channels')).status === 200, 'R loopback panel needs no login');
     }
 
-    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R');
+    // S: playground — panel-only chat through the relay pipeline (no user key),
+    //    capture bypass, and a mid-stream client abort that keeps the server healthy.
+    {
+      const pg = (body) => fetch(base + '/api/playground/chat', { method: 'POST', headers, body: JSON.stringify(body) });
+
+      const r1 = await pg({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }], stream: false });
+      ok(r1.status === 200, 'S playground non-stream status ' + r1.status);
+      const j1 = await r1.json();
+      ok(String(j1?.choices?.[0]?.message?.content ?? '').length > 0, 'S playground non-stream has content');
+      ok(j1?.model === 'gpt-4o', 'S playground echoes the model');
+
+      const r2 = await pg({ model: 'sse-chat', messages: [{ role: 'user', content: 'hi' }], stream: true });
+      ok(r2.status === 200, 'S playground stream status ' + r2.status);
+      ok((r2.headers.get('content-type') ?? '').includes('text/event-stream'), 'S playground stream content-type');
+      const t2 = await r2.text();
+      ok(t2.includes('delta'), 'S playground stream carries deltas');
+      ok(t2.includes('[DONE]'), 'S playground stream terminates');
+
+      // capture mode must swallow /v1 but not the playground
+      await postJson(base + '/api/capture/toggle', { enabled: true });
+      const r3 = await pg({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }], stream: false });
+      ok(r3.status === 200, 'S playground bypasses capture, got ' + r3.status);
+      const r4 = await fetch(base + '/v1/chat/completions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      ok(r4.status === 400, 'S capture still intercepts /v1, got ' + r4.status);
+      await postJson(base + '/api/capture/toggle', { enabled: false });
+      await fetch(base + '/api/capture', { method: 'DELETE' });
+
+      // client abort mid-stream: upstream call stops, server stays healthy
+      const ac = new AbortController();
+      const r5 = await fetch(base + '/api/playground/chat', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model: 'slow-sse', messages: [{ role: 'user', content: 'hi' }], stream: true }),
+        signal: ac.signal,
+      });
+      ok(r5.status === 200, 'S abort: stream started, got ' + r5.status);
+      const reader = r5.body.getReader();
+      await reader.read(); // first drip arrived
+      ac.abort();
+      try {
+        for (let i = 0; i < 30; i++) {
+          const { done } = await reader.read();
+          if (done) break;
+        }
+      } catch {
+        /* expected: the aborted request rejects the reader */
+      }
+      const probe = await fetch(base + '/api/config');
+      ok(probe.ok, 'S server healthy after client abort');
+
+      // unknown model -> a clear protocol error, not a hang
+      const r6 = await pg({ model: 'no-such-model', messages: [{ role: 'user', content: 'hi' }] });
+      ok(r6.status === 400, 'S unknown model -> 400, got ' + r6.status);
+      const j6 = await r6.json();
+      ok(String(j6?.error?.message ?? '').includes('no enabled channel'), 'S unknown model explains why');
+    }
+
+    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S');
     console.log('[e2e] ALL ASSERTIONS PASSED');
   } finally {
     console.log('[e2e][child-out]\n' + childOutput);
