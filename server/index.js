@@ -7,6 +7,19 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { listChannels, getSetting, setSetting } from './db.js';
 import { handleRelayRequest } from './relay.js';
 import { attachCrud } from './crud.js';
+import { errorPayload } from './relay-lib.js';
+import {
+  isLoopbackBind,
+  clientKeyMatches,
+  bearerOf,
+  sessionValid,
+  createSession,
+  dropSession,
+  safeEqual,
+  loginBlockedFor,
+  noteLoginFailure,
+  noteLoginSuccess,
+} from './auth.js';
 
 process.on('uncaughtException', (e) => console.error('[lapi] UNCAUGHT ' + (e?.stack ?? e)));
 process.on('unhandledRejection', (e) => console.error('[lapi] UNHANDLED ' + (e?.stack ?? e)));
@@ -22,10 +35,15 @@ export function createApp() {
     console.log('[lapi-req]', req.method, req.originalUrl);
     next();
   });
+  // Panel session endpoints, reachable without a session (the login must be).
+  app.get('/api/session', sessionInfo);
+  app.post('/api/login', loginHandler);
   app.use('/api', adminAuth);
+  app.post('/api/logout', logoutHandler);
   attachCrud(app);
 
   // relay (gateway) routes for CLI tools
+  app.use('/v1', relayAuth);
   app.post('/v1/messages', (req, res) => {
     handleRelayRequest(req, res, 'anthropic', 'messages');
   });
@@ -36,7 +54,7 @@ export function createApp() {
     handleRelayRequest(req, res, 'openai', 'responses');
   });
   app.get('/v1/models', handleModelsList);
-  app.get('/models', handleModelsList);
+  app.get('/models', relayAuth, handleModelsList);
  app.use(express.static(distDir));
   app.use((req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/v1')) return next();
@@ -84,19 +102,73 @@ function handleModelsList(req, res) {
   res.json({ object: 'list', data });
 }
 
-function adminAuth(req, res, next) {
-  const bind = getSetting('bind');
-  const localHosts = ['127.0.0.1', 'localhost', '::1'];
-  if (localHosts.includes(bind)) return next();
-  const token = getSetting('gateway_token');
-  if (!token) {
-    res.status(503).json({ ok: false, error: 'non-local bind requires a gateway token; set it in Settings' });
+// ---------- admin panel auth (admin_password + in-memory session) ----------
+
+function sessionInfo(req, res) {
+  const local = isLoopbackBind(getSetting('bind'));
+  res.json({
+    ok: true,
+    local,
+    auth_required: !local,
+    configured: !!getSetting('admin_password'),
+    authed: local ? true : sessionValid(bearerOf(req.headers.authorization)),
+  });
+}
+
+function loginHandler(req, res) {
+  if (isLoopbackBind(getSetting('bind'))) {
+    res.json({ ok: true, session: createSession(), local: true });
     return;
   }
-  const auth = req.headers.authorization ?? '';
-  const ok = auth === token || auth === 'Bearer ' + token;
-  if (!ok) {
-    res.status(401).json({ ok: false, error: 'unauthorized' });
+  const password = getSetting('admin_password');
+  if (!password) {
+    res.status(503).json({ ok: false, error: 'admin password not configured; set LAPI_ADMIN_PASSWORD on the host, or open the panel on loopback' });
+    return;
+  }
+  const waitMs = loginBlockedFor();
+  if (waitMs > 0) {
+    res.status(429).json({ ok: false, error: 'too many failed attempts; retry in ' + Math.ceil(waitMs / 1000) + 's' });
+    return;
+  }
+  if (!safeEqual(req.body?.password, password)) {
+    noteLoginFailure();
+    res.status(401).json({ ok: false, error: 'wrong password' });
+    return;
+  }
+  noteLoginSuccess();
+  res.json({ ok: true, session: createSession() });
+}
+
+function logoutHandler(req, res) {
+  dropSession(bearerOf(req.headers.authorization));
+  res.json({ ok: true });
+}
+
+function adminAuth(req, res, next) {
+  if (isLoopbackBind(getSetting('bind'))) return next();
+  if (!getSetting('admin_password')) {
+    res.status(503).json({ ok: false, error: 'non-local bind requires an admin password; set LAPI_ADMIN_PASSWORD or use the Settings page' });
+    return;
+  }
+  if (sessionValid(bearerOf(req.headers.authorization))) return next();
+  res.status(401).json({ ok: false, error: 'unauthorized' });
+}
+
+// ---------- relay auth (gateway_token = the key handed to users) ----------
+// Users hold this key; it grants relay access only and can never reach /api.
+
+function relayAuth(req, res, next) {
+  if (isLoopbackBind(getSetting('bind'))) return next();
+  const key = getSetting('gateway_token');
+  if (!key) {
+    res.status(503).json({ ok: false, error: 'non-local bind requires a relay key; set LAPI_GATEWAY_TOKEN or use the Settings page' });
+    return;
+  }
+  if (!clientKeyMatches(req.headers, key)) {
+    const url = req.originalUrl || req.url || '';
+    const protocol = url.includes('/messages') ? 'anthropic' : 'openai';
+    const payload = errorPayload(protocol, "invalid gateway key — put the relay key in the tool's API key field", 'authentication_error');
+    res.status(401).set('content-type', 'application/json').send(JSON.stringify(payload));
     return;
   }
   next();

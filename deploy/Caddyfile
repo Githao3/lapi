@@ -1,0 +1,22 @@
+# 公网入口：TLS 由 Caddy 自动申请（域名 A 记录指向本机即可）。
+# 把 gateway.example.com 换成你自己的域名。
+gateway.example.com {
+	encode zstd gzip
+
+	# flush_interval -1 = 立刻下发每个数据块。SSE 必需，否则流式回答会被缓冲成一次性输出。
+	reverse_proxy 127.0.0.1:8787 {
+		flush_interval -1
+	}
+
+	# 与网关自身的 body 上限对齐，避免有人用超大请求打满内存。
+	request_body {
+		max_size 50MB
+	}
+
+	log {
+		output file /var/log/caddy/lapi.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+	}
+}

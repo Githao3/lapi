@@ -1,0 +1,14 @@
+# 放在仓库根目录：Docker 构建上下文是根目录，这里排除的东西既省时间，也避免把
+# 本机的 node_modules（Windows 二进制）、data/（明文 key）、sources/（373MB 参考仓库）打进镜像。
+# web/dist 不排除：SKIP_WEB_BUILD=1 时镜像直接用它（正常情况下镜像内会重新构建覆盖它）。
+node_modules
+**/node_modules
+data
+sources
+shots
+tools
+.git
+.zcode
+*.log
+Thumbs.db
+.DS_Store

@@ -68,11 +68,21 @@ export interface SettingsPayload {
   port?: string;
   bind?: string;
   gateway_token?: string;
+  has_gateway_token?: boolean;
+  has_admin_password?: boolean;
   capture_enabled?: string;
   logging_enabled?: string;
   resolved_port?: string;
   upstream_proxy?: string;
   upstream_proxy_bypass?: string;
+}
+
+export interface SessionInfo {
+  ok: boolean;
+  local: boolean;
+  auth_required: boolean;
+  configured: boolean;
+  authed: boolean;
 }
 
 export interface CapturePayload {

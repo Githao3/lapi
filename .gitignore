@@ -8,6 +8,10 @@ web/dist/
 # runtime data — contains SQLite DB with real API keys; NEVER commit
 data/
 
+# deployment secrets (admin password + relay key)
+.env
+deploy/.env
+
 # vendored reference repos (cc-switch etc., ~373MB, re-clone from upstream)
 sources/
 

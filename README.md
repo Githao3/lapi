@@ -11,13 +11,13 @@ pnpm install
 pnpm start          # 生产：单进程服务 UI + API（默认 http://127.0.0.1:8787）
 pnpm dev            # 开发：后端 8787 + Vite 5173（/v1、/api 代理到后端）
 pnpm build          # 构建前端（web/dist）
-pnpm test           # 纯函数单测（18 项）
+pnpm test           # 纯函数单测
 pnpm extract-presets # 重新提取 cc-switch 渠道预设
 ```
 
 - 打开控制台，在「渠道」页新建渠道（或用「预设库」一键预填），再在「预设库→UA 伪装」选一条 Claude Code 工具 UA。
 - 编辑渠道弹窗里的「拉取模型」**未保存也能拉**（走 `/api/channels/fetch-models` 草稿接口）：网关按 cc-switch 的候选链请求上游 `/v1/models`（仅 404/405 才换下一个候选；兼容 `/anthropic` 等子路径与 `/v4` 版本段结尾的 base），拉回模型列表后**点选即填入** models 字段（选一个填一个，也可一键全填）——纯拉取，没有「测试」语义。
-- 工具的 base_url 填 `http://127.0.0.1:8787`，key 随便填一大串——**网关不看工具的 key**，真正生效的是每个渠道里存的 key（见「心智模型」）。
+- 工具的 base_url 填 `http://127.0.0.1:8787`。本机自用（绑定 127.0.0.1）时 key 随便填，真正生效的是每个渠道里存的 key；对外提供服务时（绑定 0.0.0.0 / 公网 IP）必须填**用户 key**，见「安全硬规则」。
 - 端口被占时自动顺延（8788、8789…）并写回设置。
 
 。
@@ -34,6 +34,8 @@ pnpm extract-presets # 重新提取 cc-switch 渠道预设
 | `GET /v1/models`（别名 `GET /models`） | 兼容形态 | 内容=**全部启用渠道**已声明模型名（含映射别名）的去重并集——跨格式转换下任一模型从任一端点可达，故不按渠道协议过滤；条目为 OpenAI/Anthropic 字段超集（`id`/`object`/`owned_by` + `type`/`display_name`），严格解析器两者通吃 |
 
 模型三级匹配：精确名（含 modelMapping 别名）→ 归一化（剥日期后缀，如 `claude-sonnet-4-5-20250829` → `claude-sonnet-4-5`）→ 通配（`*` 全收、`sonnet*` 前缀）。渠道里 models 字段填 `*` 表示全收。
+
+绑定非 loopback 地址时，以上转发端点与 `/models` 都要求**用户 key**（`x-api-key` / `Authorization` / `x-goog-api-key` 任一处，`Bearer ` 前缀可有可无）；缺失或错误返回该协议格式的 401 错误体。
 
 每个渠道在表单里用**一个「上游格式」下拉**声明上游格式（`messages` / `chat/completions` / `responses` 三选一；旧数据按 anthropic→messages、openai→chat/responses 映射，无需迁移）。客户端请求走哪条本地端点（`/v1/messages`、`/v1/chat/completions`、`/v1/responses`）都行；命中渠道的上游格式与本地请求格式**相同则直发直回**（透传）；**不同则自动转换**——请求体转成上游格式再转发，上游响应（含 SSE，逐行）转回本地格式。转换覆盖**文本对话、工具调用（tool_use ↔ tool_calls ↔ function_call 及 tool_result 往返）、图片**，并映射流式增量事件、stop_reason / usage、流内错误；截断流一律 fail-closed（绝不合成假成功）。个别长尾块（hosted web_search 桥、音频/文件等）不可转时回 400/502 并给出精确原因，绝不静默截断。`anthropic-version` 默认头跟随**渠道声明的上游格式**（messages 渠道恒注入、openai 渠道恒不带），跨格式转发也不例外。
 
@@ -65,16 +67,20 @@ pnpm extract-presets # 重新提取 cc-switch 渠道预设
 
 
 
-##心智模型（UI 常驻文案）
+## 心智模型
 
-> 工具的 key 填什么无所谓（网关不看它）；真正生效的是每个渠道存的 key；局域网暴露时再设网关 token。
+> 本机自用时工具的 key 填什么无所谓；对外提供服务时，使用者填「用户 key」调用转发，只有管理密码能登录面板查看渠道与上游 key。
 
 
 
 ##安全硬规则
 
-- 绑定非 loopback 地址（0.0.0.0 / LAN IP）时，**强制要求**先设网关 token，该 token 同时保护 `/api` 管理端；loopback 绑定则免鉴权。
- Settings 页设置。
+两套**互相独立**的凭据，在「设置 → 访问凭据」里配置，服务器部署时也可用环境变量引导：
+
+- **用户 key**（`gateway_token` / `LAPI_GATEWAY_TOKEN`）：发给使用者，填在工具的 key 位置。`/v1/*` 与 `/models` 用它校验；它**不能**访问 `/api`，所以拿不到渠道、上游 key 与日志。
+- **管理密码**（`admin_password` / `LAPI_ADMIN_PASSWORD`）：只用于登录面板（`/api`，含渠道、上游 key、日志、设置）。`/api/config` 只回「是否已设置」，从不回传密码本身；登录带失败限速，会话在内存中、有效期 7 天、重启即失效。
+
+绑定非 loopback 地址（0.0.0.0 / 公网 IP / 局域网 IP）时两者都必须设置，缺哪个哪类请求就被拒绝（fail-closed）；绑定 loopback（127.0.0.1）时两者都免校验，本机自用与原来完全一致。公网部署请始终用反代终结 HTTPS（见 `deploy/`）——面板与转发本身是明文 HTTP。
 
 - 诚实边界：仅改写 HTTP 层请求头；若上游按 TLS 指纹风控（如 claude.ai 官方），换 UA 无效——那是 v2 的方向。
  预设库里对应条目已标注「暂不支持」。
@@ -96,18 +102,23 @@ pnpm extract-presets # 重新提取 cc-switch 渠道预设
 
 ##存储与备份
 
-- 运行时数据存 `data/`（`lapi.db` + `config.json`），keys 明文存储于本地 SQLite（个人工具，与 new-api 同策略）。
-- 备份 = 拷贝 `data/` 目录即可；`.gitignore` 已排除数据目录。
+- 运行时数据存 `data/`（`lapi.db`）：渠道、两套凭据、中继日志都在其中，上游 keys 明文存储（个人工具，与 new-api 同策略），注意目录权限（`chmod 700`）。
+- 备份 = 拷贝 `data/` 目录即可；`.gitignore` 已排除数据目录。环境变量 `LAPI_DB` 可把数据库指到别处（容器里固定在 `/data/lapi.db`）。
 
 
+
+##部署到服务器（Linux + Docker）
+
+`deploy/` 里有 Dockerfile、docker-compose.yml、Caddyfile 与逐步说明：容器只监听宿主机回环、HTTPS 交给 Caddy、数据落在 `deploy/data`，与 Windows 本机那份只共享代码、互不影响。详见 [deploy/README.md](deploy/README.md)。
 
 
 
 ##测试
 
 ```bash
-node scripts/e2e.mjs            # 端到端：本地假上游 8999，覆盖路由/认证注入/UA/SSE/failover（429 重试、5xx 耗尽、半路断流零重发）/捕获模式/双形态模型列表
-pnpm test                       # 纯函数：URL 归一化、头改写（含受保护名单）、三级模型匹配、打码器
+node scripts/e2e.mjs            # 端到端：本地假上游 8999，覆盖路由/认证注入/UA/SSE/failover（429 重试、5xx 耗尽、半路断流零重发）/捕获模式/双形态模型列表/双凭据鉴权
+node scripts/smoke-auth.mjs     # 冒烟：纯环境变量引导（容器启动方式）下的双凭据鉴权
+pnpm test                       # 纯函数：URL 归一化、头改写（含受保护名单）、三级模型匹配、打码器、凭据与会话
 ```
 
 端到端全部通过即打印 `[e2e] ALL ASSERTIONS PASSED`。
