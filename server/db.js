@@ -219,28 +219,39 @@ export function clearLogs(kind) {
 
 // ---------- retention (manual cleanup; nothing is deleted automatically) ----------
 
-export function logsSummary() {
-  const total = db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
-  const relay = db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'relay'").get().n;
-  const capture = db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'capture'").get().n;
-  const range = db.prepare('SELECT MIN(ts) AS oldest, MAX(ts) AS newest FROM logs').get();
+// kind = 'relay' | 'capture' scopes every number to that kind; omitted = whole table.
+function scopeOf(kind) {
+  return kind === 'relay' || kind === 'capture' ? kind : null;
+}
+
+export function logsSummary(kind) {
+  const k = scopeOf(kind);
+  const scoped = k ? ' WHERE kind = ?' : '';
+  const args = k ? [k] : [];
+  const total = Number(db.prepare('SELECT COUNT(*) AS n FROM logs' + scoped).get(...args).n);
+  const relay = Number(db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'relay'").get().n);
+  const capture = Number(db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'capture'").get().n);
+  const range = db.prepare('SELECT MIN(ts) AS oldest, MAX(ts) AS newest FROM logs' + scoped).get(...args);
   return {
-    total: Number(total),
-    relay: Number(relay),
-    capture: Number(capture),
+    total,
+    relay,
+    capture,
     oldest_ts: range.oldest == null ? null : Number(range.oldest),
     newest_ts: range.newest == null ? null : Number(range.newest),
   };
 }
 
-export function countLogsBefore(ts) {
-  return Number(db.prepare('SELECT COUNT(*) AS n FROM logs WHERE ts < ?').get(Number(ts)).n);
+export function countLogsBefore(ts, kind) {
+  const k = scopeOf(kind);
+  const r = db.prepare('SELECT COUNT(*) AS n FROM logs WHERE ts < ?' + (k ? ' AND kind = ?' : '')).get(...(k ? [Number(ts), k] : [Number(ts)]));
+  return Number(r.n);
 }
 
-// Deletes log rows older than the given timestamp across all kinds.
+// Deletes log rows older than the given timestamp, scoped to a kind when given.
 // Returns how many rows were removed.
-export function deleteLogsBefore(ts) {
-  const r = db.prepare('DELETE FROM logs WHERE ts < ?').run(Number(ts));
+export function deleteLogsBefore(ts, kind) {
+  const k = scopeOf(kind);
+  const r = db.prepare('DELETE FROM logs WHERE ts < ?' + (k ? ' AND kind = ?' : '')).run(...(k ? [Number(ts), k] : [Number(ts)]));
   return Number(r.changes);
 }
 

@@ -119,11 +119,16 @@ export const api = {
     authFetch('/api/playground/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal }),
   getModelsCatalog: () => j<ModelsCatalogEntry[]>(authFetch('/api/models-catalog')),
   listLogs: (limit?: number) => j<LogEntry[]>(authFetch('/api/logs?limit=' + (limit ?? 100))),
-  getLogsSummary: (beforeDays?: number) =>
-    j<LogSummary>(authFetch('/api/logs/summary' + (beforeDays != null ? '?before_days=' + encodeURIComponent(String(beforeDays)) : ''))),
-  cleanupLogs: (beforeDays: number) =>
+  getLogsSummary: (beforeDays?: number, kind?: 'relay' | 'capture') => {
+    const q = new URLSearchParams();
+    if (beforeDays != null) q.set('before_days', String(beforeDays));
+    if (kind) q.set('kind', kind);
+    const qs = q.toString();
+    return j<LogSummary>(authFetch('/api/logs/summary' + (qs ? '?' + qs : '')));
+  },
+  cleanupLogs: (beforeDays: number, kind?: 'relay' | 'capture') =>
     j<{ ok: boolean; deleted: number; remaining: number }>(
-      authFetch('/api/logs/cleanup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ before_days: beforeDays }) })
+      authFetch('/api/logs/cleanup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ before_days: beforeDays, kind }) })
     ),
   getSystem: () => j<SystemInfo>(authFetch('/api/system')),
 };
