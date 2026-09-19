@@ -18,11 +18,15 @@ import { convertRequestBody, convertResponseBody, createLineConverter, convertUp
 
 const STREAM_IDLE_MS = 90000;
 
-export async function handleRelayRequest(req, res, protocol, kind) {
-if (captureIsEnabled()) {
+export async function handleRelayRequest(req, res, protocol, kind, opts = {}) {
+if (!opts.skipCapture && captureIsEnabled()) {
     handleCapture(req, res, protocol, kind);
     return;
   }
+  // A hung-up client (playground stop button, cancelled CLI call) must abort the
+  // upstream fetch too, or tokens keep burning for an answer nobody will read.
+  const clientGone = new AbortController();
+  res.on('close', () => clientGone.abort());
  const started = Date.now();
  const body = req.body ?? {};
  const model = body.model ? String(body.model) : '';
@@ -48,7 +52,7 @@ const channels = listChannels();
     const c = pickWeightedChannel(candidates);
     if (!c) break;
     attemptChannel = c;
-    const out = await forwardOnce(req, res, c, protocol, kind, body);
+    const out = await forwardOnce(req, res, c, protocol, kind, body, clientGone.signal);
     if (out.attempt) attempts.push(out.attempt);
     if (out.usage) lastUsage = out.usage;
     if (out.upstreamModel) lastUpstreamModel = out.upstreamModel;
@@ -66,13 +70,14 @@ const channels = listChannels();
       break;
     }
     if (out.retryable) {
+      if (res.destroyed) break; // client is gone: a retry has no reader
       lastError = out.error;
       continue;
     }
     lastError = out.error;
     break;
   }
-  if (lastError && !res.headersSent) {
+  if (lastError && !res.headersSent && !res.destroyed) {
     const payload = errorPayload(protocol, 'relay failed: ' + lastError);
     res.status(502).set('content-type', 'application/json').send(JSON.stringify(payload));
   }
@@ -102,7 +107,7 @@ function uniqueModels(channels) {
 
 // ---------- forwarding ----------
 
-async function forwardOnce(req, res, c, protocol, kind, body) {
+async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
   // Upstream format comes from the channel's declaration;local format comes from the path..
   const upKind = c.protocol === 'openai' ? String(c.openai_endpoint ?? 'chat') : 'messages';
   const localKind = kind;
@@ -138,11 +143,14 @@ async function forwardOnce(req, res, c, protocol, kind, body) {
       method: 'POST',
       headers,
       body: JSON.stringify(upstreamBody),
-      signal: AbortSignal.timeout(300000),
+      signal: clientAbort ? AbortSignal.any([AbortSignal.timeout(300000), clientAbort]) : AbortSignal.timeout(300000),
       duplex: 'half',
       ...egressOptions(targetUrl),
     });
   } catch (e) {
+    if (clientAbort?.aborted) {
+      return { done: true, retryable: false, error: 'client aborted', sentBytes: false };
+    }
     return { done: false, retryable: true, error: String(e && e.message ? e.message : e), sentBytes: false, attempt: { channel: c.name, status: null, error: String(e && e.message ? e.message : e) } };
   }
   if (resp.status >=500 || (resp.status === 429 && resp.headers.get('retry-after'))) {
