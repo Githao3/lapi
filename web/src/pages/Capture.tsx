@@ -68,9 +68,9 @@ function CaptureDialog({ log, onClose }: { log: LogEntry; onClose: () => void })
           </div>
         )}
         {uaMsg && <div className="text-xs font-medium text-emerald-700">{uaMsg}</div>}
-        <KVList title="入站请求头（已打码）" obj={inHeaders} empty="无" />
+        <KVList title="入站请求头（明文）" obj={inHeaders} empty="无" />
         <KVList
-          title="出站请求头（将发往上游，已打码）"
+          title="出站请求头（将发往上游，明文）"
           obj={outHeaders}
           empty="未构造出站头（无匹配渠道）"
         />
@@ -120,7 +120,7 @@ export default function Capture() {
     <div className="space-y-5">
       <PageHeader
         title="捕获"
-        desc="开启后请求不转发，直接回显入站/出站两份请求头（凭证打码）"
+        desc="开启后请求不转发，直接回显入站/出站两份请求头（明文，含凭证与 session）"
       />
       <Card title="请求头捕获" actions={
         <div className="flex items-center gap-3">
@@ -138,7 +138,7 @@ export default function Capture() {
           <ol className="list-decimal space-y-1.5 pl-5">
             <li>打开上方捕获开关。</li>
             <li>把工具的 base URL 指向本网关：<code className="rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-indigo-700 ring-1 ring-black/[0.05]">http://127.0.0.1:8787</code></li>
-            <li>工具发请求后，工具终端会直接收到 400，里面内嵌「入站 + 出站」两份头（凭证已打码）；这里同时留档。</li>
+            <li>工具发请求后，工具终端会直接收到 400，里面内嵌「入站 + 出站」两份头（明文）；这里同时留档。</li>
             <li>点击任意记录查看结构化的两份头与 body 预览；遇到好用的 agent UA 可一键存为预设。</li>
           </ol>
         </div>
@@ -189,6 +189,9 @@ export default function Capture() {
           </div>
         )}
       </Card>
+      <Note tone="warn">
+        安全提示：捕获记录是<b>明文</b>保存的（包括 agent 的认证头与 session）——这是客户端预设的原料，代价是它们和渠道 key 同级敏感。请保持 data 目录权限，用完及时清理。
+      </Note>
       {selected && <CaptureDialog log={selected} onClose={() => setSelected(null)} />}
       {cleanupOpen && <CleanupDialog kind="capture" onClose={() => setCleanupOpen(false)} onDone={reload} />}
     </div>

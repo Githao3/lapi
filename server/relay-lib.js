@@ -160,27 +160,6 @@ apiKey = String(apiKey).trim();
  return out;
 }
 
-// ---------- secret masking ----------
-
-const SECRET_HEADER_RE = /(authorization|x-api-key|x-goog-api-key|proxy-authorization|cookie|set-cookie|api[_-]?key|token|secret|session|password)/i;
-
-export function maskSensitiveHeaders(headers) {
-  const out = {};
- for (const [k, v] of Object.entries(headers)) {
-    if (k && SECRET_HEADER_RE.test(String(k))) {
-      const s = Array.isArray(v) ? v.join(', ') : String(v ?? '');
-      if (s.length > 12) {
-        out[k] = s.slice(0, 6) + '......' + s.slice(-4);
-      } else {
-        out[k] = '......';
-      }
-    } else {
-      out[k] = Array.isArray(v) ? v.join(', ') : v;
-    }
-  }
- return out;
-}
-
 // ---------- model matching, 3 levels ----------
 // level 3: exact; 2: normalized (date suffix stripped);;1: wildcard.
 

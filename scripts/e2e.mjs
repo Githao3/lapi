@@ -216,7 +216,7 @@ try {
       ok(fake.counts['flaky-drop'] === 1, 'drop: never retried after bytes');
     }
 
-// G: capture mode -> not forwarded, masked headers logged
+// G: capture mode -> not forwarded, RAW headers logged (preset source material)
     {
       await postJson(base + '/api/capture/toggle', { enabled: true });
       const r = await fetch(base + '/v1/messages', {
@@ -227,12 +227,12 @@ try {
       ok(r.status === 400, 'capture mode returns 400');
       const text = await r.text();
       ok(text.includes('INCOMING HEADERS'), 'capture payload shows incoming headers');
-      ok(text.includes('......'), 'capture masks secrets');
-      ok(!text.includes('sk-secret-client'), 'capture never echoes raw secret');
+      ok(text.includes('sk-secret-client'), 'capture echoes raw headers verbatim (by design)');
       ok(fake.counts['claude-sonnet-4-5'] === 1, 'capture never forwards (count unchanged');
       const caps = (await (await fetch(base + '/api/capture')).json()).entries;
       ok(caps.length === 1, 'capture entry logged');
       ok(caps[0].detail?.inHeaders, 'capture entry keeps inHeaders');
+      ok(caps[0].detail.inHeaders.authorization === 'Bearer sk-secret-client', 'capture stores raw credential (no masking)');
       await postJson(base + '/api/capture/toggle', { enabled: false });
     }
 
