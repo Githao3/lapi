@@ -12,6 +12,9 @@ import {
   listLogs,
   clearLogs,
   collectStats,
+  logsSummary,
+  countLogsBefore,
+  deleteLogsBefore,
 } from './db.js';
 import { listPresets, presetToChannel } from './presets.js';
 import { captureIsEnabled } from './capture.js';
@@ -163,7 +166,7 @@ export function attachCrud(app) {
   app.get('/api/capture', (req, res) => {
     res.json({
       enabled: captureIsEnabled(),
-      entries: listLogs('capture', 50),
+      entries: listLogs('capture', 200),
     });
   });
 
@@ -175,6 +178,40 @@ export function attachCrud(app) {
   app.delete('/api/capture', (req, res) => {
     clearLogs('capture');
     res.json({ ok: true });
+  });
+
+  // Log retention: nothing is deleted automatically; each page cleans its own kind.
+  function kindOf(v) {
+    return v === 'relay' || v === 'capture' ? v : null;
+  }
+
+  app.get('/api/logs/summary', (req, res) => {
+    const kind = kindOf(req.query.kind);
+    if (req.query.kind != null && req.query.kind !== '' && !kind) {
+      res.status(400).json({ ok: false, error: "kind 只能是 'relay' 或 'capture'" });
+      return;
+    }
+    const s = logsSummary(kind);
+    const days = Number(req.query.before_days ?? '');
+    if (Number.isFinite(days) && days >= 0) {
+      s.older = countLogsBefore(Date.now() - days * 86400000, kind);
+    }
+    res.json(s);
+  });
+
+  app.post('/api/logs/cleanup', (req, res) => {
+    const days = Number(req.body?.before_days ?? '');
+    const kind = kindOf(req.body?.kind);
+    if (req.body?.kind != null && req.body.kind !== '' && !kind) {
+      res.status(400).json({ ok: false, error: "kind 只能是 'relay' 或 'capture'" });
+      return;
+    }
+    if (!Number.isFinite(days) || days < 0) {
+      res.status(400).json({ ok: false, error: 'before_days 必须是 >= 0 的数字' });
+      return;
+    }
+    const deleted = deleteLogsBefore(Date.now() - days * 86400000, kind);
+    res.json({ ok: true, deleted, remaining: logsSummary(kind).total });
   });
 
   app.get('/api/stats', (req, res) => {

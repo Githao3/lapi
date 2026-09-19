@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, fmtTs } from '../api';
 import type { LogEntry } from '../types';
 import { Card, Button, Badge, EmptyState, PageHeader, Modal } from '../components/ui';
+import { CleanupDialog } from '../components/CleanupDialog';
 
 function KVList({ title, obj, empty }: { title: string; obj: Record<string, unknown> | null | undefined; empty: string }) {
   const keys = obj ? Object.keys(obj) : [];
@@ -92,6 +93,7 @@ export default function Capture() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [selected, setSelected] = useState<LogEntry | null>(null);
   const [loading, setLoading] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
 
   const reload = async () => {
     try {
@@ -113,11 +115,6 @@ export default function Capture() {
     }
   };
 
-  const clearAll = async () => {
-    if (!confirm('清空全部捕获记录？')) return;
-    await api.clearCapture();
-    await reload();
-  };
 
   return (
     <div className="space-y-5">
@@ -149,7 +146,7 @@ export default function Capture() {
 
       <Card
         title={'捕获记录（' + entries.length + '）'}
-        actions={entries.length > 0 && <Button variant="danger" onClick={clearAll}>清空</Button>}
+        actions={entries.length > 0 && <Button variant="subtle" onClick={() => setCleanupOpen(true)}>清理…</Button>}
       >
         {entries.length === 0 ? (
           <EmptyState text="暂无捕获记录。" />
@@ -193,6 +190,7 @@ export default function Capture() {
         )}
       </Card>
       {selected && <CaptureDialog log={selected} onClose={() => setSelected(null)} />}
+      {cleanupOpen && <CleanupDialog kind="capture" onClose={() => setCleanupOpen(false)} onDone={reload} />}
     </div>
   );
 }

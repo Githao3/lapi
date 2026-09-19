@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import type { LogEntry } from '../types';
 import { Card, Button, EmptyState, Badge, PageHeader, Modal } from '../components/ui';
+import { CleanupDialog } from '../components/CleanupDialog';
 
 type Attempt = { channel?: string; status?: number | null; error?: string };
 type UsageInfo = { input_tokens?: number; output_tokens?: number; total_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
@@ -124,8 +125,10 @@ export default function Logs() {
   const [logs, setLogsging] = useState<LogEntry[]>([]);
   const [selected, setSelected] = useState<LogEntry | null>(null);
   const [page, setPage] = useState(0);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const refresh = () => api.listLogs(200).then(setLogsging).catch(() => {});
   useEffect(() => {
-    api.listLogs(200).then(setLogsging).catch(() => {});
+    refresh();
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(logs.length / PAGE_SIZE));
@@ -136,8 +139,13 @@ export default function Logs() {
     <div className="space-y-5">
       <PageHeader
         title="日志"
-        desc="中继请求记录（点击行查看详情：用量、上游尝试与错误）"
-        actions={<Button variant="subtle" onClick={() => api.listLogs(200).then(setLogsging)}>刷新</Button>}
+        desc="中继请求记录（点击行查看详情：用量、上游尝试与错误）· 默认永久保存"
+        actions={
+          <>
+            <Button variant="subtle" onClick={() => setCleanupOpen(true)}>清理…</Button>
+            <Button variant="subtle" onClick={refresh}>刷新</Button>
+          </>
+        }
       />
       <Card title={'中继日志（' + logs.length + '）'}>
         {logs.length === 0 ? (
@@ -198,6 +206,7 @@ export default function Logs() {
         )}
       </Card>
       {selected && <DetailDialog log={selected} onClose={() => setSelected(null)} />}
+      {cleanupOpen && <CleanupDialog kind="relay" onClose={() => setCleanupOpen(false)} onDone={refresh} />}
     </div>
   );
 }

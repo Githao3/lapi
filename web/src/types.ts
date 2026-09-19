@@ -64,6 +64,15 @@ export interface SystemInfo {
   channels: number;
 }
 
+export interface LogSummary {
+  total: number;
+  relay: number;
+  capture: number;
+  oldest_ts: number | null;
+  newest_ts: number | null;
+  older?: number;
+}
+
 export interface SettingsPayload {
   port?: string;
   bind?: string;

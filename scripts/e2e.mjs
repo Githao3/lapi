@@ -591,7 +591,46 @@ try {
       ok(String(j6?.error?.message ?? '').includes('no enabled channel'), 'S unknown model explains why');
     }
 
-    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S');
+    // T: log retention — nothing evicts automatically; manual cleanup by age works
+    {
+      // 造一条捕获记录，验证它与转发日志共存（旧的 1000 条全局滚动池会把捕获挤掉）
+      await postJson(base + '/api/capture/toggle', { enabled: true });
+      await fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      await postJson(base + '/api/capture/toggle', { enabled: false });
+
+      const sum0 = await (await fetch(base + '/api/logs/summary')).json();
+      ok(sum0.total > 0 && sum0.relay > 0, 'T relay logs counted, got ' + JSON.stringify(sum0));
+      ok(sum0.capture >= 1, 'T capture entries coexist with relay logs');
+      ok(typeof sum0.oldest_ts === 'number', 'T summary carries oldest timestamp');
+
+      const est = await (await fetch(base + '/api/logs/summary?before_days=0&kind=capture')).json();
+      ok(est.older === sum0.capture, 'T capture-scoped estimate covers all capture rows, got ' + est.older + ' vs ' + sum0.capture);
+
+      const bad = await fetch(base + '/api/logs/cleanup', { method: 'POST', headers, body: JSON.stringify({ before_days: -1 }) });
+      ok(bad.status === 400, 'T invalid before_days -> 400');
+      const badKind = await fetch(base + '/api/logs/cleanup', { method: 'POST', headers, body: JSON.stringify({ before_days: 1, kind: 'nope' }) });
+      ok(badKind.status === 400, 'T invalid kind -> 400, got ' + badKind.status);
+
+      // 分类清理：只清捕获，转发日志必须原封不动
+      const delCap = await (await fetch(base + '/api/logs/cleanup', { method: 'POST', headers, body: JSON.stringify({ before_days: 0, kind: 'capture' }) })).json();
+      ok(delCap.ok === true && delCap.deleted === sum0.capture, 'T capture-only cleanup removed capture rows, got ' + JSON.stringify(delCap));
+      const sum1 = await (await fetch(base + '/api/logs/summary')).json();
+      ok(sum1.capture === 0, 'T capture empty after scoped cleanup');
+      ok(sum1.relay === sum0.relay, 'T relay logs untouched by capture cleanup, got ' + sum1.relay + ' vs ' + sum0.relay);
+
+      // 再单独清转发
+      const delRelay = await (await fetch(base + '/api/logs/cleanup', { method: 'POST', headers, body: JSON.stringify({ before_days: 0, kind: 'relay' }) })).json();
+      ok(delRelay.ok === true && delRelay.deleted === sum0.relay, 'T relay-only cleanup removed relay rows, got ' + JSON.stringify(delRelay));
+      const sum2 = await (await fetch(base + '/api/logs/summary')).json();
+      ok(sum2.total === 0, 'T archive empty after both scoped cleanups, got ' + sum2.total);
+      ok((await (await fetch(base + '/api/logs?limit=10')).json()).length === 0, 'T log list empty after cleanup');
+    }
+
+    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S T');
     console.log('[e2e] ALL ASSERTIONS PASSED');
   } finally {
     console.log('[e2e][child-out]\n' + childOutput);
