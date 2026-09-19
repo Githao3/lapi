@@ -21,6 +21,7 @@ import { captureIsEnabled } from './capture.js';
 import { normalizeUpstreamUrl } from './relay-lib.js';
 import { fetchModelsList } from './model-fetch.js';
 import { handleRelayRequest } from './relay.js';
+import { loadPresets, getPreset, savePresets, classifyCaptureHeaders } from './client-presets.js';
 
 const SETTING_KEYS = ['port', 'bind', 'gateway_token', 'admin_password', 'logging_enabled', 'upstream_proxy', 'upstream_proxy_bypass'];
 
@@ -78,12 +79,17 @@ export function attachCrud(app) {
   });
 
   app.post('/api/channels', (req, res) => {
-    const id = insertChannel(req.body ?? {});
+    const body = { ...(req.body ?? {}) };
+    // UA 伪装与客户端档案二选一：引用档案时清掉独立 UA
+    if (body.client_preset) body.user_agent_override = '';
+    const id = insertChannel(body);
     res.json({ ok: true, id });
   });
 
   app.put('/api/channels/:id', (req, res) => {
-    updateChannel(Number(req.params.id), req.body ?? {});
+    const body = { ...(req.body ?? {}) };
+    if (body.client_preset) body.user_agent_override = '';
+    updateChannel(Number(req.params.id), body);
     res.json({ ok: true });
   });
 
@@ -185,6 +191,18 @@ export function attachCrud(app) {
     return v === 'relay' || v === 'capture' ? v : null;
   }
 
+  function sanitizeClientHeaders(headers) {
+    if (!Array.isArray(headers)) return [];
+    const seen = new Map();
+    for (const h of headers) {
+      const name = String(h?.name ?? '').toLowerCase().trim();
+      if (!name || name.length > 128) continue;
+      const mode = ['fixed', 'fill', 'drop'].includes(h?.mode) ? h.mode : 'fixed';
+      seen.set(name, { name, value: String(h?.value ?? ''), mode });
+    }
+    return [...seen.values()];
+  }
+
   app.get('/api/logs/summary', (req, res) => {
     const kind = kindOf(req.query.kind);
     if (req.query.kind != null && req.query.kind !== '' && !kind) {
@@ -212,6 +230,59 @@ export function attachCrud(app) {
     }
     const deleted = deleteLogsBefore(Date.now() - days * 86400000, kind);
     res.json({ ok: true, deleted, remaining: logsSummary(kind).total });
+  });
+
+  // Client impersonation presets: named header profiles a channel can reference.
+  app.get('/api/client-presets', (req, res) => {
+    res.json(loadPresets());
+  });
+
+  app.post('/api/client-presets/draft', (req, res) => {
+    res.json(classifyCaptureHeaders(req.body?.inHeaders));
+  });
+
+  app.post('/api/client-presets', (req, res) => {
+    const name = String(req.body?.name ?? '').trim();
+    if (!name || name.length > 60) {
+      res.status(400).json({ ok: false, error: '预设名必填且不超过 60 字符' });
+      return;
+    }
+    const list = loadPresets();
+    if (list.some((p) => p.name === name)) {
+      res.status(400).json({ ok: false, error: '同名客户端预设已存在' });
+      return;
+    }
+    const preset = { name, created_at: Date.now(), headers: sanitizeClientHeaders(req.body?.headers) };
+    list.push(preset);
+    savePresets(list);
+    res.json({ ok: true, preset });
+  });
+
+  app.put('/api/client-presets/:name', (req, res) => {
+    const target = String(req.params.name ?? '');
+    const list = loadPresets();
+    const preset = list.find((p) => p.name === target);
+    if (!preset) {
+      res.status(404).json({ ok: false, error: '客户端预设不存在' });
+      return;
+    }
+    const name = String(req.body?.name ?? target).trim();
+    if (!name || name.length > 60 || list.some((p) => p.name === name && p !== preset)) {
+      res.status(400).json({ ok: false, error: '新名称为空、超长或已存在' });
+      return;
+    }
+    preset.name = name;
+    preset.headers = sanitizeClientHeaders(req.body?.headers);
+    savePresets(list);
+    res.json({ ok: true, preset });
+  });
+
+  app.delete('/api/client-presets/:name', (req, res) => {
+    const target = String(req.params.name ?? '');
+    const list = loadPresets();
+    const next = list.filter((p) => p.name !== target);
+    savePresets(next);
+    res.json({ ok: true, removed: next.length !== list.length });
   });
 
   app.get('/api/stats', (req, res) => {

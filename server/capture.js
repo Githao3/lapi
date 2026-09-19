@@ -14,6 +14,7 @@ import {
   errorPayload,
 } from './relay-lib.js';
 import { listChannels, insertLog, getSetting } from './db.js';
+import { getPreset } from './client-presets.js';
 
 export function captureIsEnabled() {
   return getSetting('capture_enabled') === '1';
@@ -38,6 +39,7 @@ export function handleCapture(req, res, protocol, kind) {
       userAgentOverride: c.user_agent_override,
       protocol,
       headerOverrides: c.header_overrides,
+      clientPreset: c.client_preset ? getPreset(c.client_preset) : null,
     });
   }
  insertLog({

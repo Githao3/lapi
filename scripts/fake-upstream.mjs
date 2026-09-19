@@ -22,6 +22,7 @@ function logHit(req, body) {
     ua: h['user-agent'],
     acceptEncoding: h['accept-encoding'],
     anthropicVersion: h['anthropic-version'],
+    headers: h,
     model: body?.model ?? null,
     body,
   });

@@ -11,6 +11,7 @@ export interface Channel {
   api_key: string;
   auth_mode: AuthMode;
   user_agent_override: string;
+  client_preset: string;
   header_overrides: Record<string, string>;
   model_mapping: Record<string, string>;
   models: string;
@@ -19,6 +20,18 @@ export interface Channel {
   notes: string;
   created_at?: number;
   updated_at?: number;
+}
+
+export interface ClientPresetHeader {
+  name: string;
+  value: string;
+  mode: 'fixed' | 'fill' | 'drop';
+}
+
+export interface ClientPreset {
+  name: string;
+  created_at: number;
+  headers: ClientPresetHeader[];
 }
 
 export interface PresetEntry {

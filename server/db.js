@@ -31,6 +31,7 @@ db.exec(`
     weight INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1,
     notes TEXT NOT NULL DEFAULT '',
+    client_preset TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
@@ -54,11 +55,15 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_logs_kind_ts ON logs(kind, ts);
 `);
-// Migrate pre-2026-09 databases: add openai_endpoint (default 'chat', so existing OpenAI channels keep working).
+// Migrate pre-2026-09 databases: add openai_endpoint (default 'chat', so existing OpenAI channels keep working);
+// add client_preset (client impersonation profile reference; empty = UA-only impersonation).
 try {
   const cols = db.prepare('PRAGMA table_info(channels)').all();
   if (!cols.some((c) => c.name === 'openai_endpoint')) {
     db.exec("ALTER TABLE channels ADD COLUMN openai_endpoint TEXT NOT NULL DEFAULT 'chat'");
+  }
+  if (!cols.some((c) => c.name === 'client_preset')) {
+    db.exec("ALTER TABLE channels ADD COLUMN client_preset TEXT NOT NULL DEFAULT ''");
   }
 } catch {}
 
@@ -117,6 +122,7 @@ export function allSettings() {
 function rowToChannel(r) {
   const c = { ...r };
   c.enabled = !!c.enabled;
+  c.client_preset = String(c.client_preset ?? '');
   c.header_overrides = JSON.parse(c.header_overrides ?? '{}');
   c.model_mapping = JSON.parse(c.model_mapping ?? '{}');
   return c;
@@ -137,8 +143,8 @@ export function insertChannel(data) {
   const r = db.prepare(
     'INSERT INTO channels (name, protocol, openai_endpoint, base_url, api_key, auth_mode,' +
     'user_agent_override, header_overrides, model_mapping, models,' +
-    'weight, enabled, notes, created_at, updated_at) VALUES ' +
-    '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'weight, enabled, notes, client_preset, created_at, updated_at) VALUES ' +
+    '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     String(data.name ?? ''), String(data.protocol ?? 'anthropic'),
     String(data.openai_endpoint ?? 'chat'),
@@ -149,7 +155,7 @@ export function insertChannel(data) {
     JSON.stringify(data.model_mapping ?? {}),
     String(data.models ?? ''), Number(data.weight ?? 0),
     data.enabled ? 1:  0,
-    String(data.notes ?? ''), now, now
+    String(data.notes ?? ''), String(data.client_preset ?? ''), now, now
   );
   return Number(r.lastInsertRowid);
 }
@@ -160,7 +166,7 @@ db.prepare(
     'UPDATE channels SET name = ?, protocol = ?, openai_endpoint = ?, base_url = ?, api_key = ?,' +
     'auth_mode = ?, user_agent_override = ?, header_overrides = ?,' +
     'model_mapping = ?, models = ?, weight = ?, enabled = ?, notes = ?,' +
-    'updated_at = ? WHERE id = ?'
+    'client_preset = ?, updated_at = ? WHERE id = ?'
   ).run(
     String(data.name ?? ''), String(data.protocol ?? 'anthropic'),
     String(data.openai_endpoint ?? 'chat'),
@@ -171,7 +177,7 @@ db.prepare(
     JSON.stringify(data.model_mapping ?? {}),
     String(data.models ?? ''), Number(data.weight ?? 0),
     data.enabled ? 1:  0,
-    String(data.notes ?? ''), now, Number(id)
+    String(data.notes ?? ''), String(data.client_preset ?? ''), now, Number(id)
   );
 }
 

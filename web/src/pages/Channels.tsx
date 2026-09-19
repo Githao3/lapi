@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { Channel, AuthMode } from '../types';
+import type { Channel, AuthMode, ClientPreset } from '../types';
 import { Card, Button, Badge, Field, Select, Modal, Note, EmptyState, PageHeader, inputCls } from '../components/ui';
 
 const DRAFT_KEY = 'lapi-draft';
@@ -14,6 +14,7 @@ function emptyChannel(): Channel {
     api_key: '',
     auth_mode: 'bearer',
     user_agent_override: '',
+    client_preset: '',
     header_overrides: {},
     model_mapping: {},
     models: '',
@@ -111,6 +112,7 @@ export default function Channels() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [editing, setEditing] = useState<Channel | null>(null);
   const [uaPresets, setUaPresets] = useState<string[]>([]);
+  const [clientPresets, setClientPresets] = useState<ClientPreset[]>([]);
   const [fetched, setFetched] = useState<{ models: string[]; error: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -118,6 +120,7 @@ export default function Channels() {
   useEffect(() => {
     reload();
     api.listPresets().then((p) => setUaPresets(p.uaPresets ?? [])).catch(() => {});
+    api.listClientPresets().then(setClientPresets).catch(() => {});
     const raw = localStorage.getItem(DRAFT_KEY);
     if (raw) {
       try {
@@ -289,7 +292,13 @@ export default function Channels() {
               />
             </Field>
             <Field label="User-Agent 覆盖">
-              <input className={inputCls} value={editing.user_agent_override} onChange={(e) => set({ user_agent_override: e.target.value })} placeholder="留空则透传客户端值" />
+              <input
+                className={inputCls}
+                value={editing.user_agent_override}
+                disabled={!!editing.client_preset}
+                onChange={(e) => set({ user_agent_override: e.target.value })}
+                placeholder={editing.client_preset ? '已由客户端档案接管' : '留空则透传客户端值'}
+              />
             </Field>
             <div className="md:col-span-2">
               <Field label="UA 伪装预设" hint="内置 cc-switch 预设 + 捕获页保存的 agent UA；是否使用由你显式选择。">
@@ -297,6 +306,7 @@ export default function Channels() {
                   <select
                     className={inputCls}
                     value=""
+                    disabled={!!editing.client_preset}
                     onChange={(e) => { if (e.target.value) set({ user_agent_override: e.target.value }); }}
                   >
                     <option value="">选择预设…</option>
@@ -304,7 +314,27 @@ export default function Channels() {
                       <option key={u} value={u}>{u}</option>
                     ))}
                   </select>
-                  {editing.user_agent_override && <Button variant="subtle" onClick={() => set({ user_agent_override: '' })}>清除</Button>}
+                  {editing.user_agent_override && !editing.client_preset && <Button variant="subtle" onClick={() => set({ user_agent_override: '' })}>清除</Button>}
+                </div>
+              </Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field
+                label="客户端档案（与 UA 伪装二选一，优先）"
+                hint="引用整组请求头档案（预设库里管理，捕获页可从真实请求生成）：fixed 覆盖 / fill 补位 / drop 剔除。选中后上方 UA 伪装失效并被清除。"
+              >
+                <div className="flex gap-2">
+                  <select
+                    className={inputCls}
+                    value={editing.client_preset}
+                    onChange={(e) => set({ client_preset: e.target.value, ...(e.target.value ? { user_agent_override: '' } : {}) })}
+                  >
+                    <option value="">不使用客户端档案</option>
+                    {clientPresets.map((p) => (
+                      <option key={p.name} value={p.name}>{p.name}（{p.headers.length} 个头）</option>
+                    ))}
+                  </select>
+                  {editing.client_preset && <Button variant="subtle" onClick={() => set({ client_preset: '' })}>清除</Button>}
                 </div>
               </Field>
             </div>

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api';
-import type { PresetEntry, PresetsPayload } from '../types';
+import { api, fmtTs } from '../api';
+import type { ClientPreset, ClientPresetHeader, PresetEntry, PresetsPayload } from '../types';
 import { Card, Button, Badge, EmptyState, Note, PageHeader, inputCls } from '../components/ui';
+import { ClientPresetEditor } from '../components/ClientPresetEditor';
 
 const DRAFT_KEY = 'lapi-draft';
 
@@ -13,10 +14,17 @@ export default function Presets() {
   const [q, setQ] = useState('');
   const [tab, setTab] = useState<Tab>('featured');
   const [copied, setCopied] = useState('');
+  const [clientPresets, setClientPresets] = useState<ClientPreset[]>([]);
+  const [editing, setEditing] = useState<{ isNew: boolean; name: string; headers: ClientPresetHeader[] } | null>(null);
+
+  const loadClientPresets = () => {
+    api.listClientPresets().then(setClientPresets).catch(() => {});
+  };
 
   const load = () => {
     setErr('');
     api.listPresets().then(setData).catch((e) => setErr(String(e)));
+    loadClientPresets();
   };
   useEffect(() => { load(); }, []);
 
@@ -24,6 +32,14 @@ export default function Presets() {
     try {
       await api.deleteUaPreset(u);
       load();
+    } catch (e) { setErr(String(e)); }
+  };
+
+  const removeClientPreset = async (name: string) => {
+    if (!window.confirm(`删除客户端预设「${name}」？引用它的渠道将回落为不伪装。`)) return;
+    try {
+      await api.deleteClientPreset(name);
+      loadClientPresets();
     } catch (e) { setErr(String(e)); }
   };
 
@@ -125,6 +141,49 @@ export default function Presets() {
         </>)}
       </Card>
 
+      <Card title="客户端伪装档案（整组请求头）">
+        <div className="space-y-3">
+          <p className="text-xs leading-relaxed text-zinc-500">
+            一条捕获 = 一个客户端的完整身份：渠道引用档案后，出站请求按 fixed 覆盖 / fill 补位 / drop 剔除套用整组头，比只伪装 UA 完整得多。
+            在「捕获」页打开任意记录点「存为客户端预设」即可新建。与渠道的 UA 伪装二选一，档案优先。
+          </p>
+          {clientPresets.length === 0 ? (
+            <EmptyState text="还没有客户端档案——去捕获页从真实请求生成一条。" />
+          ) : (
+            <div className="overflow-hidden rounded-xl ring-1 ring-black/[0.06]">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-black/[0.06] bg-zinc-50 text-[11px] uppercase tracking-wider text-zinc-400">
+                    <th className="px-3 py-2 font-medium">名称</th>
+                    <th className="px-3 py-2 font-medium">头数量</th>
+                    <th className="px-3 py-2 font-medium">创建时间</th>
+                    <th className="px-3 py-2 text-right font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clientPresets.map((p) => (
+                    <tr key={p.name} className="border-b border-black/[0.04] last:border-b-0">
+                      <td className="px-3 py-2 font-medium text-zinc-800">{p.name}</td>
+                      <td className="px-3 py-2 tabular-nums text-zinc-500">{p.headers.length}</td>
+                      <td className="px-3 py-2 text-zinc-500">{fmtTs(p.created_at)}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="subtle" onClick={() => setEditing({ isNew: false, name: p.name, headers: p.headers })}>编辑</Button>
+                          <Button variant="subtle" onClick={() => removeClientPreset(p.name)}>删除</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button variant="subtle" onClick={() => setEditing({ isNew: true, name: '', headers: [] })}>+ 新建空档案</Button>
+          </div>
+        </div>
+      </Card>
+
       <Card title="User-Agent 伪装预设（点击复制；捕获页可保存新的）">
         <div className="flex flex-wrap gap-2">
           {(data?.uaPresets ?? []).map((u) => {
@@ -160,6 +219,18 @@ export default function Presets() {
         「使用此预设」会把渠道草稿带到「渠道」页面的编辑弹窗里（预填后仍需保存），然后你补上自己的 API key 即可。「自定义渠道」直接打开空表单。
         同一条目若出现在精选层，是人工核对过的（打过快的）；全部层为原样搬运，未逐一核实—保存后在渠道表单点「拉取模型」即可核对连通并顺带填好模型列表。
       </Note>
+      {editing && (
+        <ClientPresetEditor
+          isNew={editing.isNew}
+          initialName={editing.name}
+          initialHeaders={editing.headers}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            loadClientPresets();
+          }}
+        />
+      )}
     </div>
   );
 }

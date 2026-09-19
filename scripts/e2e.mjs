@@ -591,6 +591,75 @@ try {
       ok(String(j6?.error?.message ?? '').includes('no enabled channel'), 'S unknown model explains why');
     }
 
+    // U: client presets — classify a capture into a draft, then verify the three
+    //    modes end-to-end on the relay path (fixed 覆盖 / fill 补位透传 / drop 剔除).
+    {
+      // 抓一条带 session 的请求作为预设原料
+      await postJson(base + '/api/capture/toggle', { enabled: true });
+      await fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers: { ...headers, 'user-agent': 'opencode/9.9.9 test', 'x-session-id': 'ses_capture_1' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      await postJson(base + '/api/capture/toggle', { enabled: false });
+      const caps = (await (await fetch(base + '/api/capture')).json()).entries;
+      const cap = caps.find((c) => c.detail?.inHeaders?.['x-session-id'] === 'ses_capture_1');
+      ok(cap, 'U capture with session header exists');
+
+      const draft = await (await fetch(base + '/api/client-presets/draft', {
+        method: 'POST', headers, body: JSON.stringify({ inHeaders: cap.detail.inHeaders }),
+      })).json();
+      ok(draft.name === 'opencode', 'U draft name guessed from UA, got ' + draft.name);
+      const byName = Object.fromEntries(draft.headers.map((h) => [h.name, h]));
+      ok(byName['user-agent']?.mode === 'fixed', 'U identity headers default to fixed');
+      ok(byName['x-session-id']?.mode === 'fill' && byName['x-session-id']?.value === 'ses_capture_1', 'U session header classified fill with captured value');
+      ok(!draft.headers.some((h) => ['authorization', 'host', 'content-length', 'anthropic-beta'].includes(h.name)), 'U gateway-managed/auth/excluded headers are absent');
+
+      const created = await (await fetch(base + '/api/client-presets', {
+        method: 'POST', headers,
+        body: JSON.stringify({ name: draft.name, headers: [...draft.headers, { name: 'x-session-affinity', value: 'aff_pinned', mode: 'drop' }] }),
+      })).json();
+      ok(created.ok === true, 'U preset created');
+
+      // 渠道引用档案（并清掉 UA override，二选一）
+      const channels = await (await fetch(base + '/api/channels')).json();
+      const ch = channels.find((c) => c.name === 'anthropic-e2e');
+      const putCh = await fetch(base + '/api/channels/' + ch.id, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ ...ch, client_preset: 'opencode', user_agent_override: '' }),
+      });
+      ok(putCh.ok, 'U channel now references the preset');
+
+      const relayReq = (extra, session) => fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers: { ...headers, 'user-agent': 'some-other-client/1.0', ...(session ? { 'x-session-id': session } : {}), ...extra },
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+
+      const r1 = await relayReq({ 'x-session-affinity': 'aff_should_die' }, 'ses_live_1');
+      ok(r1.status === 200, 'U relay with preset ok, got ' + r1.status);
+      let hit = lastHit('claude-sonnet-4-5');
+      ok(hit.ua === 'opencode/9.9.9 test', 'U fixed UA overrides client UA, got ' + hit.ua);
+      ok(hit.headers['x-session-id'] === 'ses_live_1', 'U fill passes the live session through');
+      ok(hit.headers['x-session-affinity'] == null, 'U drop removes the header entirely');
+      ok(hit.host === '127.0.0.1:8999' && hit.auth === 'Bearer sk-up-12345', 'U host/auth stay channel-owned');
+
+      const r2 = await relayReq({}, '');
+      ok(r2.status === 200, 'U relay without session ok');
+      hit = lastHit('claude-sonnet-4-5');
+      ok(hit.headers['x-session-id'] === 'ses_capture_1', 'U fill backfills the pinned session, got ' + hit.headers['x-session-id']);
+
+      // 收尾：恢复渠道 UA override，删除预设
+      await fetch(base + '/api/channels/' + ch.id, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ ...ch, client_preset: '', user_agent_override: 'e2e-ua' }),
+      });
+      const dup = await fetch(base + '/api/client-presets', { method: 'POST', headers, body: JSON.stringify({ name: 'opencode', headers: [] }) });
+      ok(dup.status === 400, 'U duplicate preset name -> 400');
+      const del = await fetch(base + '/api/client-presets/opencode', { method: 'DELETE' });
+      ok(del.ok, 'U preset deleted');
+    }
+
     // T: log retention — nothing evicts automatically; manual cleanup by age works
     {
       // 造一条捕获记录，验证它与转发日志共存（旧的 1000 条全局滚动池会把捕获挤掉）
@@ -630,7 +699,7 @@ try {
       ok((await (await fetch(base + '/api/logs?limit=10')).json()).length === 0, 'T log list empty after cleanup');
     }
 
-    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S T');
+    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S T U');
     console.log('[e2e] ALL ASSERTIONS PASSED');
   } finally {
     console.log('[e2e][child-out]\n' + childOutput);

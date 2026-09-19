@@ -15,6 +15,7 @@ import { egressOptions } from './egress.js';
 import { listChannels, insertLog, getSetting } from './db.js';
 import { handleCapture, captureIsEnabled } from './capture.js';
 import { convertRequestBody, convertResponseBody, createLineConverter, convertUpstreamError } from './conversion/index.mjs';
+import { getPreset } from './client-presets.js';
 
 const STREAM_IDLE_MS = 90000;
 
@@ -125,6 +126,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
     protocol,
     upstreamKind: upKind,
     headerOverrides: c.header_overrides,
+    clientPreset: c.client_preset ? getPreset(c.client_preset) : null,
   });
   let outBody = body;
   if (needConvert) {

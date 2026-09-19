@@ -95,6 +95,12 @@ function isDroppedHeader(name) {
   }
   return false;
 }
+export { isDroppedHeader };
+
+function isProtectedOverrideHeader(name) {
+  return PROTECTED_OVERRIDE_HEADERS.has(String(name).toLowerCase());
+}
+export { isProtectedOverrideHeader };
 
 // clientHeaders: node req.headers, lowercased keys.
 
@@ -147,6 +153,11 @@ apiKey = String(apiKey).trim();
     // openai-declared channel: a client-sent anthropic-version is protocol noise — drop it.
     delete out['anthropic-version'];
   }
+ // Client impersonation profile slots in above gateway defaults but below channel
+ // overrides (applied next), so a channel can always pin its own value on top.
+ if (opts.clientPreset) {
+    applyClientPreset(out, opts.clientPreset);
+  }
  for (const [k, v] of Object.entries(headerOverrides)) {
     const name = String(k).toLowerCase().trim();
     if (!name) continue;
@@ -158,6 +169,32 @@ apiKey = String(apiKey).trim();
     if (out[k] === null) delete out[k];
   }
  return out;
+}
+
+// ---------- client impersonation presets ----------
+
+// Applies a client preset onto the outbound header set:
+//   fixed — always override (the profile owns this header's identity)
+//   fill  — pass the client's live value through; only backfill the pinned
+//           value when the client sent nothing (e.g. session ids)
+//   drop  — remove the header from the outbound set
+// Gateway-managed headers (host/auth/framing/length) can never be touched.
+export function applyClientPreset(out, preset) {
+  if (!preset || !Array.isArray(preset.headers)) return out;
+  for (const h of preset.headers) {
+    const name = String(h?.name ?? '').toLowerCase().trim();
+    if (!name || isProtectedOverrideHeader(name)) continue;
+    const value = String(h?.value ?? '');
+    if (h?.mode === 'fixed') {
+      out[name] = value;
+    } else if (h?.mode === 'fill') {
+      const cur = out[name];
+      if (cur == null || cur === '') out[name] = value;
+    } else if (h?.mode === 'drop') {
+      delete out[name];
+    }
+  }
+  return out;
 }
 
 // ---------- model matching, 3 levels ----------
