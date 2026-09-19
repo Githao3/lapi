@@ -115,6 +115,12 @@ async function main() {
   const base0 = 'http://127.0.0.1:' + basePort;
  await seedChannels(base0);
 console.log('[e2e] server up, port ' + basePort);
+// 端口稳定性：冲突顺延只影响本次（active_port），优先端口设置不被覆盖
+{
+  const cfg0 = await (await fetch('http://127.0.0.1:' + basePort + '/api/config')).json();
+  ok(cfg0.resolved_port === String(basePort), 'resolved_port reflects the bound port, got ' + cfg0.resolved_port);
+  ok(cfg0.port === '8787', 'preferred port setting stays 8787, got ' + cfg0.port);
+}
 child.on('exit', (code) => console.log('[e2e][child-exit] code ' + code));
 try {
       const probe = await fetch('http://127.0.0.1:' + basePort + '/');

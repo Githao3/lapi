@@ -46,7 +46,9 @@ function presetsPayloadWithCustom() {
 export function attachCrud(app) {
   app.get('/api/config', (req, res) => {
     const s = allSettings();
-    s.resolved_port = getSetting('port');
+    // What's actually listening right now (may differ from the preferred port when
+    // it was taken at startup — the preferred port itself never gets overwritten).
+    s.resolved_port = getSetting('active_port') || getSetting('port');
     // admin_password never leaves the server; the panel only learns whether one exists.
     s.has_admin_password = !!getSetting('admin_password');
     s.has_gateway_token = !!getSetting('gateway_token');

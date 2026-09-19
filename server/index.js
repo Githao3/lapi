@@ -176,11 +176,17 @@ function relayAuth(req, res, next) {
 
 export async function startServer() {
   const bind = getSetting('bind') || '127.0.0.1';
-  let port = Number(getSetting('port') || 8787);
+  const preferred = Number(getSetting('port') || 8787);
+  let port = preferred;
   for (let i=0; i<20; i++) {
     try {
       await listenOnce(bind, port);
-      setSetting('port', String(port));
+      // The preferred port stays what the user set; a conflicted run only records
+      // where it actually landed, so the next start tries the preferred port again.
+      setSetting('active_port', String(port));
+      if (port !== preferred) {
+        console.log('[lapi] 端口 ' + preferred + ' 被占用，本次临时使用 ' + port + '；下次启动仍优先 ' + preferred);
+      }
       return;
     } catch (e) {
       if (e.code === 'EADDRINUSE') {
