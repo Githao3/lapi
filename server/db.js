@@ -52,6 +52,7 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
   );
+  CREATE INDEX IF NOT EXISTS idx_logs_kind_ts ON logs(kind, ts);
 `);
 // Migrate pre-2026-09 databases: add openai_endpoint (default 'chat', so existing OpenAI channels keep working).
 try {
@@ -191,8 +192,9 @@ export function insertLog(entry) {
     entry.status ?? null, entry.ms ?? null,
     String(entry.error ?? String.fromCharCode(39,39)), JSON.stringify(entry.detail ?? {}),
   );
-  // keep last 1000 rows
-  db.exec('DELETE FROM logs WHERE id NOT IN (SELECT id FROM logs ORDER BY id DESC LIMIT 1000)');
+  // No eviction here: relay logs and capture records persist until the owner
+  // cleans them up explicitly (Logs page -> 清理). The two kinds must not
+  // evict each other — agent traffic once wiped every capture record.
 }
 
 export function listLogs(kind = null, limit = 100) {
@@ -213,6 +215,33 @@ export function clearLogs(kind) {
   } else {
     db.exec('DELETE FROM logs');
   }
+}
+
+// ---------- retention (manual cleanup; nothing is deleted automatically) ----------
+
+export function logsSummary() {
+  const total = db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
+  const relay = db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'relay'").get().n;
+  const capture = db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'capture'").get().n;
+  const range = db.prepare('SELECT MIN(ts) AS oldest, MAX(ts) AS newest FROM logs').get();
+  return {
+    total: Number(total),
+    relay: Number(relay),
+    capture: Number(capture),
+    oldest_ts: range.oldest == null ? null : Number(range.oldest),
+    newest_ts: range.newest == null ? null : Number(range.newest),
+  };
+}
+
+export function countLogsBefore(ts) {
+  return Number(db.prepare('SELECT COUNT(*) AS n FROM logs WHERE ts < ?').get(Number(ts)).n);
+}
+
+// Deletes log rows older than the given timestamp across all kinds.
+// Returns how many rows were removed.
+export function deleteLogsBefore(ts) {
+  const r = db.prepare('DELETE FROM logs WHERE ts < ?').run(Number(ts));
+  return Number(r.changes);
 }
 
 export function countChannels() {

@@ -12,6 +12,7 @@ import type {
   CatalogChannelRef,
   ModelsCatalogEntry,
   SessionInfo,
+  LogSummary,
 } from './types';
 
 const SESSION_KEY = 'lapi_session';
@@ -118,6 +119,12 @@ export const api = {
     authFetch('/api/playground/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal }),
   getModelsCatalog: () => j<ModelsCatalogEntry[]>(authFetch('/api/models-catalog')),
   listLogs: (limit?: number) => j<LogEntry[]>(authFetch('/api/logs?limit=' + (limit ?? 100))),
+  getLogsSummary: (beforeDays?: number) =>
+    j<LogSummary>(authFetch('/api/logs/summary' + (beforeDays != null ? '?before_days=' + encodeURIComponent(String(beforeDays)) : ''))),
+  cleanupLogs: (beforeDays: number) =>
+    j<{ ok: boolean; deleted: number; remaining: number }>(
+      authFetch('/api/logs/cleanup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ before_days: beforeDays }) })
+    ),
   getSystem: () => j<SystemInfo>(authFetch('/api/system')),
 };
 

@@ -591,7 +591,36 @@ try {
       ok(String(j6?.error?.message ?? '').includes('no enabled channel'), 'S unknown model explains why');
     }
 
-    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S');
+    // T: log retention — nothing evicts automatically; manual cleanup by age works
+    {
+      // 造一条捕获记录，验证它与转发日志共存（旧的 1000 条全局滚动池会把捕获挤掉）
+      await postJson(base + '/api/capture/toggle', { enabled: true });
+      await fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      await postJson(base + '/api/capture/toggle', { enabled: false });
+
+      const sum0 = await (await fetch(base + '/api/logs/summary')).json();
+      ok(sum0.total > 0 && sum0.relay > 0, 'T relay logs counted, got ' + JSON.stringify(sum0));
+      ok(sum0.capture >= 1, 'T capture entries coexist with relay logs');
+      ok(typeof sum0.oldest_ts === 'number', 'T summary carries oldest timestamp');
+
+      const est = await (await fetch(base + '/api/logs/summary?before_days=0')).json();
+      ok(est.older === sum0.total, 'T before_days=0 estimate covers everything, got older=' + est.older + ' total=' + sum0.total);
+
+      const bad = await fetch(base + '/api/logs/cleanup', { method: 'POST', headers, body: JSON.stringify({ before_days: -1 }) });
+      ok(bad.status === 400, 'T invalid before_days -> 400');
+
+      const del = await (await fetch(base + '/api/logs/cleanup', { method: 'POST', headers, body: JSON.stringify({ before_days: 0 }) })).json();
+      ok(del.ok === true && del.deleted === sum0.total, 'T cleanup removed everything, got ' + JSON.stringify(del));
+      const sum1 = await (await fetch(base + '/api/logs/summary')).json();
+      ok(sum1.total === 0, 'T archive empty after full cleanup, got ' + sum1.total);
+      ok((await (await fetch(base + '/api/logs?limit=10')).json()).length === 0, 'T log list empty after cleanup');
+    }
+
+    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S T');
     console.log('[e2e] ALL ASSERTIONS PASSED');
   } finally {
     console.log('[e2e][child-out]\n' + childOutput);
