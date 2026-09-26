@@ -16,6 +16,7 @@ import { listChannels, insertLog, getSetting } from './db.js';
 import { handleCapture, captureIsEnabled } from './capture.js';
 import { convertRequestBody, convertResponseBody, createLineConverter, convertUpstreamError } from './conversion/index.mjs';
 import { getPreset } from './client-presets.js';
+import { request as undiciRequest } from 'undici';
 
 const STREAM_IDLE_MS = 90000;
 
@@ -143,12 +144,13 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
   const upstreamModel = String(upstreamBody?.model ?? body?.model ?? '');
   let resp;
   try {
-    resp = await fetch(targetUrl, {
+    // undici.request（而非全局 fetch）：只发送我们构造的头。fetch 会自动注入
+    // sec-fetch-mode / accept-language / accept: */* 等指纹头，伪装场景不可接受。
+    resp = await undiciRequest(targetUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(upstreamBody),
       signal: clientAbort ? AbortSignal.any([AbortSignal.timeout(300000), clientAbort]) : AbortSignal.timeout(300000),
-      duplex: 'half',
       ...egressOptions(targetUrl),
     });
   } catch (e) {
@@ -157,47 +159,50 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
     }
     return { done: false, retryable: true, error: String(e && e.message ? e.message : e), sentBytes: false, attempt: { channel: c.name, status: null, error: String(e && e.message ? e.message : e), out_headers: headers } };
   }
-  if (resp.status >=500 || (resp.status === 429 && resp.headers.get('retry-after'))) {
-    const errText = await resp.text().catch(() => '');
-    return { done: false, retryable: true, error: 'upstream status ' + resp.status, sentBytes: false, out_headers: headers, attempt: { channel: c.name, status: resp.status, error: maskSecrets(errText, c), out_headers: headers } };
+  const status = resp.statusCode;
+  const getHeader = (name) => {
+    const v = resp.headers[name];
+    return Array.isArray(v) ? v[0] : (v ?? null);
+  };
+  if (status >=500 || (status === 429 && getHeader('retry-after'))) {
+    const errText = await readBodyString(resp.body).catch(() => '');
+    return { done: false, retryable: true, error: 'upstream status ' + status, sentBytes: false, out_headers: headers, attempt: { channel: c.name, status, error: maskSecrets(errText, c), out_headers: headers } };
   }
-  if (resp.status >=400) {
-    const raw = await resp.text().catch(() => '');
+  if (status >=400) {
+    const raw = await readBodyString(resp.body).catch(() => '');
     let out = raw;
     if (raw) {
       try {
         const j = JSON.parse(raw);
-        out = JSON.stringify(convertUpstreamError(j, localKind, 'upstream status ' + resp.status));
+        out = JSON.stringify(convertUpstreamError(j, localKind, 'upstream status ' + status));
       } catch { /* non-JSON error body: pass through */ }
     } else {
-      out = JSON.stringify(errorPayload(protocol, 'upstream status ' + resp.status));
+      out = JSON.stringify(errorPayload(protocol, 'upstream status ' + status));
     }
-    res.status(resp.status);
+    res.status(status);
     res.set('content-type', 'application/json');
     res.send(out);
-    return { done: true, retryable: false, error: '', sentBytes: false, out_headers: headers, attempt: { channel: c.name, status: resp.status, error: maskSecrets(raw, c), out_headers: headers } };
+    return { done: true, retryable: false, error: '', sentBytes: false, out_headers: headers, attempt: { channel: c.name, status, error: maskSecrets(raw, c), out_headers: headers } };
   }
   // pipe through (streaming or buffered)
   let sentBytes = false;
   let conv = null;
   let usage = null;
   let scanner = null;
-  res.status(resp.status);
+  res.status(status);
   for (const h of ['content-type', 'cache-control', 'retry-after']) {
-    const v = resp.headers.get(h);
+    const v = getHeader(h);
     if (v) res.set(h, v);
   }
-  const ct = resp.headers.get('content-type') ?? '';
+  const ct = getHeader('content-type') ?? '';
   const isStream = ct.includes('text/event-stream') || ct.includes('application/x-ndjson');
   try {
     if (isStream) {
       conv = needConvert ? createLineConverter(upKind, localKind) : null;
       scanner = createUsageScanner(upKind);
-      const reader = resp.body.getReader();
       let lastData = Date.now();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      for await (const chunk of resp.body) {
+        const value = chunk ? Buffer.from(chunk) : null;
         if (value && value.length) {
           scanner.push(value);
           let out = value;
@@ -208,7 +213,10 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
             lastData = Date.now();
           }
         }
-        if (Date.now() - lastData > STREAM_IDLE_MS) break;
+        if (Date.now() - lastData > STREAM_IDLE_MS) {
+          resp.body.destroy();
+          break;
+        }
       }
       if (conv) {
         const tail = Buffer.from(conv.end(), 'utf8');
@@ -217,7 +225,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
       try { usage = scanner.end(); } catch { /* usage scan is best-effort */ }
       res.end();
     } else {
-      const buf = Buffer.from(await resp.arrayBuffer());
+      const buf = await readBodyBuffer(resp.body);
       try { usage = extractUsageFromJson(upKind, JSON.parse(buf.toString('utf8'))); } catch { /* non-JSON or no usage */ }
       if (needConvert && buf.length) {
         let convErr = '';
@@ -234,7 +242,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
           res.set('content-type', 'application/json');
           res.end(JSON.stringify(errorPayload(protocol, convErr)));
         }
-        return { done: true, retryable: false, error: convErr, sentBytes, attempt: { channel: c.name, status: resp.status, error: convErr }, usage, upstreamModel };
+        return { done: true, retryable: false, error: convErr, sentBytes, attempt: { channel: c.name, status, error: convErr }, usage, upstreamModel };
       }
       sentBytes = buf.length >0;
       res.end(buf);
@@ -303,6 +311,19 @@ function maskSecrets(text, channel) {
   for (const k of keys) t = t.split(k).join('***');
   if (t.length > 1200) t = t.slice(0, 1200) + '…';
   return t;
+}
+
+// 读取上游响应体为字符串（undici.request 的 body 是异步可迭代流）
+async function readBodyString(body) {
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function readBodyBuffer(body) {
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
 }
 
 function buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, isFailure) {

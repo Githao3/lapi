@@ -173,7 +173,24 @@ apiKey = String(apiKey).trim();
 
 // ---------- client impersonation presets ----------
 
+// Under strict mode these survive the scrub (they're recomputed by the gateway,
+// not client identity); everything else the client sent is dropped so the
+// outbound exactly matches the captured fingerprint.
+const STRICT_KEEP = new Set([
+  'host',
+  'authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'content-type',
+  'content-length',
+  'accept',
+  'accept-encoding',
+  'anthropic-version',
+]);
+
 // Applies a client preset onto the outbound header set:
+//   strict — strip every client header the profile doesn't list, then apply rows
+//            (the outbound becomes a faithful replay of the captured fingerprint)
 //   fixed — always override (the profile owns this header's identity)
 //   fill  — pass the client's live value through; only backfill the pinned
 //           value when the client sent nothing (e.g. session ids)
@@ -181,17 +198,26 @@ apiKey = String(apiKey).trim();
 // Gateway-managed headers (host/auth/framing/length) can never be touched.
 export function applyClientPreset(out, preset) {
   if (!preset || !Array.isArray(preset.headers)) return out;
+  const rows = new Map();
   for (const h of preset.headers) {
     const name = String(h?.name ?? '').toLowerCase().trim();
     if (!name || isProtectedOverrideHeader(name)) continue;
+    rows.set(name, h);
+  }
+  if (preset.strict) {
+    for (const k of Object.keys(out)) {
+      if (!STRICT_KEEP.has(k) && !rows.has(k)) delete out[k];
+    }
+  }
+  for (const [name, h] of rows) {
     const value = String(h?.value ?? '');
-    if (h?.mode === 'fixed') {
+    if (h.mode === 'fixed') {
       out[name] = value;
-    } else if (h?.mode === 'fill') {
+    } else if (h.mode === 'fill') {
       const cur = out[name];
       // 缺了才补；补位的值是空串时宁可不发，也不发一个空头
       if ((cur == null || cur === '') && value !== '') out[name] = value;
-    } else if (h?.mode === 'drop') {
+    } else if (h.mode === 'drop') {
       delete out[name];
     }
   }

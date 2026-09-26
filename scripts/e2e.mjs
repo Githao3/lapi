@@ -620,6 +620,8 @@ try {
         body: JSON.stringify({ name: draft.name, headers: [...draft.headers, { name: 'x-session-affinity', value: 'aff_pinned', mode: 'drop' }] }),
       })).json();
       ok(created.ok === true, 'U preset created');
+      console.log('[e2e][debug] created preset:', JSON.stringify(created.preset));
+      console.log('[e2e][debug] stored:', JSON.stringify((await (await fetch(base + '/api/client-presets')).json()).find(p => p.name === 'opencode')));
 
       // 渠道引用档案（并清掉 UA override，二选一）
       const channels = await (await fetch(base + '/api/channels')).json();
@@ -632,7 +634,7 @@ try {
 
       const relayReq = (extra, session) => fetch(base + '/v1/messages', {
         method: 'POST',
-        headers: { ...headers, 'user-agent': 'some-other-client/1.0', ...(session ? { 'x-session-id': session } : {}), ...extra },
+        headers: { ...headers, 'user-agent': 'some-other-client/1.0', 'sec-fetch-mode': 'no-cors', 'accept-language': 'zh-CN', ...(session ? { 'x-session-id': session } : {}), ...extra },
         body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
       });
 
@@ -642,6 +644,7 @@ try {
       ok(hit.ua === 'opencode/9.9.9 test', 'U fixed UA overrides client UA, got ' + hit.ua);
       ok(hit.headers['x-session-id'] === 'ses_live_1', 'U fill passes the live session through');
       ok(hit.headers['x-session-affinity'] == null, 'U drop removes the header entirely');
+      ok(hit.headers['sec-fetch-mode'] == null && hit.headers['accept-language'] == null, 'U strict mode strips client fingerprint headers');
       ok(hit.host === '127.0.0.1:8999' && hit.auth === 'Bearer sk-up-12345', 'U host/auth stay channel-owned');
 
       const r2 = await relayReq({}, '');

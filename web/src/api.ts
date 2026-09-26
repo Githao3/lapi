@@ -113,9 +113,9 @@ export const api = {
   listClientPresets: () => j<ClientPreset[]>(authFetch('/api/client-presets')),
   draftClientPreset: (inHeaders: Record<string, string>) =>
     j<{ name: string; headers: ClientPresetHeader[] }>(authFetch('/api/client-presets/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ inHeaders }) })),
-  createClientPreset: (p: { name: string; headers: ClientPresetHeader[] }) =>
+  createClientPreset: (p: { name: string; strict: boolean; headers: ClientPresetHeader[] }) =>
     j<{ ok: boolean; preset: ClientPreset }>(authFetch('/api/client-presets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) })),
-  updateClientPreset: (name: string, p: { name: string; headers: ClientPresetHeader[] }) =>
+  updateClientPreset: (name: string, p: { name: string; strict: boolean; headers: ClientPresetHeader[] }) =>
     j<{ ok: boolean; preset: ClientPreset }>(authFetch('/api/client-presets/' + encodeURIComponent(name), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) })),
   deleteClientPreset: (name: string) =>
     j<{ ok: boolean; removed: boolean }>(authFetch('/api/client-presets/' + encodeURIComponent(name), { method: 'DELETE' })),

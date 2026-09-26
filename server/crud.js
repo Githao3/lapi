@@ -254,7 +254,7 @@ export function attachCrud(app) {
       res.status(400).json({ ok: false, error: '同名客户端预设已存在' });
       return;
     }
-    const preset = { name, created_at: Date.now(), headers: sanitizeClientHeaders(req.body?.headers) };
+    const preset = { name, created_at: Date.now(), strict: req.body?.strict !== false, headers: sanitizeClientHeaders(req.body?.headers) };
     list.push(preset);
     savePresets(list);
     res.json({ ok: true, preset });
@@ -274,6 +274,7 @@ export function attachCrud(app) {
       return;
     }
     preset.name = name;
+    preset.strict = req.body?.strict !== false;
     preset.headers = sanitizeClientHeaders(req.body?.headers);
     savePresets(list);
     if (name !== target) renameChannelPresetRefs(target, name);

@@ -15,7 +15,7 @@ export default function Presets() {
   const [tab, setTab] = useState<Tab>('featured');
   const [copied, setCopied] = useState('');
   const [clientPresets, setClientPresets] = useState<ClientPreset[]>([]);
-  const [editing, setEditing] = useState<{ isNew: boolean; name: string; headers: ClientPresetHeader[] } | null>(null);
+  const [editing, setEditing] = useState<{ isNew: boolean; name: string; strict: boolean; headers: ClientPresetHeader[] } | null>(null);
 
   const loadClientPresets = () => {
     api.listClientPresets().then(setClientPresets).catch(() => {});
@@ -168,7 +168,7 @@ export default function Presets() {
                       <td className="px-3 py-2 text-zinc-500">{fmtTs(p.created_at)}</td>
                       <td className="px-3 py-2">
                         <div className="flex justify-end gap-2">
-                          <Button variant="subtle" onClick={() => setEditing({ isNew: false, name: p.name, headers: p.headers })}>编辑</Button>
+                          <Button variant="subtle" onClick={() => setEditing({ isNew: false, name: p.name, strict: p.strict !== false, headers: p.headers })}>编辑</Button>
                           <Button variant="subtle" onClick={() => removeClientPreset(p.name)}>删除</Button>
                         </div>
                       </td>
@@ -179,7 +179,7 @@ export default function Presets() {
             </div>
           )}
           <div className="flex justify-end">
-            <Button variant="subtle" onClick={() => setEditing({ isNew: true, name: '', headers: [] })}>+ 新建空档案</Button>
+            <Button variant="subtle" onClick={() => setEditing({ isNew: true, name: '', strict: true, headers: [] })}>+ 新建空档案</Button>
           </div>
         </div>
       </Card>
@@ -223,6 +223,7 @@ export default function Presets() {
         <ClientPresetEditor
           isNew={editing.isNew}
           initialName={editing.name}
+          initialStrict={editing.strict}
           initialHeaders={editing.headers}
           onClose={() => setEditing(null)}
           onSaved={() => {

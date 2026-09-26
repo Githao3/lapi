@@ -61,6 +61,17 @@ test("classify: anthropic-beta 明确排除（逐请求变化的开关组合）"
   assert.ok(!headers.some((h) => h.name === "anthropic-beta"));
 });
 
+test("classify: 浏览器/undici 自动头排除（sec-fetch-*、accept-language）", () => {
+  const { headers } = classifyCaptureHeaders({
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-dest": "empty",
+    "accept-language": "*",
+    "user-agent": "opencode/1.18.31",
+  });
+  assert.deepEqual(headers.map((h) => h.name), ["user-agent"], "只收录真实身份头");
+});
+
 test("classify: 会话/请求类头按名字命中 fill", () => {
   const { headers } = classifyCaptureHeaders(OPENCODE_IN);
   const byName = Object.fromEntries(headers.map((h) => [h.name, h]));
@@ -129,6 +140,71 @@ test("applyClientPreset: fill 的补位值为空时宁可不发", () => {
   });
   assert.ok(!("x-session-id" in out), "空头不该被发送");
   assert.ok(!("x-session-affinity" in out));
+});
+
+test("applyClientPreset: 严格模式剔除客户端指纹头，保留网关管辖头与档案头", () => {
+  const out = {
+    // 客户端带来的指纹头（比如 ZCode/浏览器系客户端）
+    "sec-fetch-site": "none",
+    "sec-fetch-mode": "no-cors",
+    "sec-fetch-dest": "empty",
+    "accept-language": "zh-CN",
+    "x-query-id": "01a0b9bf",
+    // 网关管辖/默认头
+    host: "opencode.ai",
+    authorization: "Bearer public",
+    "content-type": "application/json",
+    accept: "application/json",
+    "accept-encoding": "identity",
+    "anthropic-version": "2023-06-01",
+  };
+  applyClientPreset(out, {
+    name: "opencode",
+    strict: true,
+    headers: [
+      { name: "user-agent", value: "opencode/1.18.31", mode: "fixed" },
+      { name: "accept", value: "*/*", mode: "fixed" },
+      { name: "x-session-id", value: "ses_pinned", mode: "fill" },
+      { name: "x-session-affinity", value: "ses_pinned", mode: "fill" },
+    ],
+  });
+  for (const gone of ["sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "accept-language", "x-query-id"]) {
+    assert.ok(!(gone in out), "严格模式剔除 " + gone);
+  }
+  assert.equal(out["user-agent"], "opencode/1.18.31", "档案 UA 覆盖");
+  assert.equal(out.accept, "*/*", "档案 accept 覆盖网关默认");
+  assert.equal(out["x-session-id"], "ses_pinned", "fill 补位");
+  // 网关管辖头全部健在
+  assert.equal(out.host, "opencode.ai");
+  assert.equal(out.authorization, "Bearer public");
+  assert.equal(out["content-type"], "application/json");
+  assert.equal(out["accept-encoding"], "identity");
+  assert.equal(out["anthropic-version"], "2023-06-01");
+});
+
+test("applyClientPreset: 关闭严格模式则客户端头照旧透传", () => {
+  const out = { "sec-fetch-mode": "no-cors", "accept-language": "zh-CN", accept: "application/json" };
+  applyClientPreset(out, {
+    name: "p",
+    strict: false,
+    headers: [{ name: "user-agent", value: "opencode/1.18.31", mode: "fixed" }],
+  });
+  assert.equal(out["sec-fetch-mode"], "no-cors", "宽松模式保留客户端头");
+  assert.equal(out["accept-language"], "zh-CN");
+  assert.equal(out["user-agent"], "opencode/1.18.31");
+});
+
+test("applyClientPreset: drop 行在严格模式下依然把头排除在外", () => {
+  const out = { "x-request-id": "should-vanish", "user-agent": "u" };
+  applyClientPreset(out, {
+    name: "p",
+    strict: true,
+    headers: [
+      { name: "user-agent", value: "u", mode: "fixed" },
+      { name: "x-request-id", value: "x", mode: "drop" },
+    ],
+  });
+  assert.ok(!("x-request-id" in out));
 });
 
 test("applyClientPreset: 管辖头（host/认证/长度）永不被档案触碰", () => {

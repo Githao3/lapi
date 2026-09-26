@@ -16,11 +16,13 @@ const MODE_LABELS: Record<Row['mode'], string> = {
 export function ClientPresetEditor(props: {
   isNew: boolean;
   initialName: string;
+  initialStrict?: boolean;
   initialHeaders: ClientPresetHeader[];
   onClose: () => void;
   onSaved: (preset: ClientPreset) => void;
 }) {
   const [name, setName] = useState(props.initialName);
+  const [strict, setStrict] = useState(props.initialStrict !== false);
   const [rows, setRows] = useState<Row[]>(props.initialHeaders.map((h) => ({ ...h })));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -44,9 +46,10 @@ export function ClientPresetEditor(props: {
     setBusy(true);
     setErr('');
     try {
+      const payload = { name: name.trim(), strict, headers: clean };
       const r = props.isNew
-        ? await api.createClientPreset({ name: name.trim(), headers: clean })
-        : await api.updateClientPreset(props.initialName, { name: name.trim(), headers: clean });
+        ? await api.createClientPreset(payload)
+        : await api.updateClientPreset(props.initialName, payload);
       props.onSaved(r.preset);
     } catch (e) {
       setErr(String((e as Error)?.message ?? e));
@@ -75,6 +78,15 @@ export function ClientPresetEditor(props: {
         <label className="block">
           <span className="mb-1.5 block text-xs font-medium text-zinc-600">预设名</span>
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="如 opencode" />
+        </label>
+        <label className="flex items-start gap-2.5 rounded-xl border border-black/[0.06] bg-zinc-50/70 px-3.5 py-3">
+          <input type="checkbox" className="mt-0.5" checked={strict} onChange={(e) => setStrict(e.target.checked)} />
+          <span className="text-xs leading-relaxed text-zinc-600">
+            <b className="text-zinc-800">严格模式（建议开启）</b>
+            <br />
+            出站只保留档案内的头 + 网关管辖头（host/认证/长度/编码），客户端带来的其他指纹头
+            （如 sec-fetch-*、accept-language）全部剔除；关闭则档案叠加在客户端头上。
+          </span>
         </label>
         <div className="overflow-hidden rounded-xl ring-1 ring-black/[0.06]">
           <table className="w-full text-left text-xs">

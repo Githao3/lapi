@@ -14,6 +14,10 @@ const FILL_NAME_RE = /session|thread|request|uuid|turn|window|nonce|retry|query/
 const AUTH_HEADERS = new Set(['authorization', 'x-api-key', 'x-goog-api-key', 'cookie', 'proxy-authorization']);
 // Volatile per request type (flag combinations), name gives no hint — decided to exclude.
 const EXTRA_EXCLUDED = new Set(['anthropic-beta']);
+// 浏览器/undici 自动注入的头：随客户端运行时变化，不该进档案
+// （真 opencode 不发它们；严格模式会把客户端带来的这类头剔除）。
+const EXCLUDED_PREFIXES = ['sec-fetch-'];
+const EXCLUDED_NAMES = new Set(['accept-language', 'anthropic-beta']);
 
 export function loadPresets() {
   try {
@@ -40,7 +44,7 @@ export function classifyCaptureHeaders(inHeaders) {
     if (!lower) continue;
     if (isDroppedHeader(lower)) continue; // 网关管辖：转发时自动重建/计算
     if (AUTH_HEADERS.has(lower)) continue; // 认证：渠道 key 管辖
-    if (EXTRA_EXCLUDED.has(lower)) continue;
+    if (EXCLUDED_NAMES.has(lower) || EXCLUDED_PREFIXES.some((p) => lower.startsWith(p))) continue;
     headers.push({
       name: lower,
       value: Array.isArray(v) ? v.join(', ') : String(v ?? ''),

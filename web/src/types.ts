@@ -31,6 +31,7 @@ export interface ClientPresetHeader {
 export interface ClientPreset {
   name: string;
   created_at: number;
+  strict?: boolean;
   headers: ClientPresetHeader[];
 }
 
