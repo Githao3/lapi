@@ -290,7 +290,8 @@ function logRelay(started, req, res, protocol, channel, model, lastError, attemp
     status: res.statusCode ?? null,
     ms: Date.now() - started,
     error: lastError,
-    detail: buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, lastError),
+    // 4xx/5xx 的 error 字段可能为空（错误体直接回给客户端了），状态码也算失败
+    detail: buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, lastError || clientError || (res.statusCode ?? 0) >= 400),
   });
 }
 
@@ -304,14 +305,14 @@ function maskSecrets(text, channel) {
   return t;
 }
 
-function buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, lastError) {
+function buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, isFailure) {
   const detail = {};
   if (attempts && attempts.length) detail.attempts = attempts;
   if (clientError) detail.clientError = clientError;
   if (usage) detail.usage = usage;
   if (upstreamModel) detail.upstream_model = upstreamModel;
   // 出站头快照：失败请求总是记录（排障刚需）；设置打开后成功请求也记录
-  if (outHeaders && (lastError || clientError || getSetting('log_out_headers') === '1')) {
+  if (outHeaders && (isFailure || getSetting('log_out_headers') === '1')) {
     detail.out_headers = outHeaders;
   }
   return detail;

@@ -185,6 +185,10 @@ const server = createServer(async (req, res) => {
       res.end();
       return;
     }
+    if (m.includes('unauthorized')) {
+      json(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } });
+      return;
+    }
     if (m.includes('tool-msg')) {
       json(res, 200, anthropicToolMsg(m));
       return;

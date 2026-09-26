@@ -35,7 +35,7 @@ async function seedChannels(base) {
     name: 'anthropic-e2e',
     protocol: 'anthropic',
     base_url: 'http://127.0.0.1:8999',
-    models: 'claude-sonnet-4-5,tool-msg',
+    models: 'claude-sonnet-4-5,tool-msg,unauthorized',
     api_key: 'sk-up-12345',
     auth_mode: 'bearer',
     user_agent_override: 'e2e-ua',
@@ -666,6 +666,13 @@ try {
       const okLog = okLogs.find((l) => l.model === 'claude-sonnet-4-5' && !l.error);
       ok(okLog && okLog.detail?.out_headers && okLog.detail.out_headers['user-agent'], 'U success log records outbound headers when toggled');
       await fetch(base + '/api/config', { method: 'PUT', headers, body: JSON.stringify({ log_out_headers: '0' }) });
+
+      // 4xx 且 error 字段为空的分支（如上游 401/403）也要记出站头——回归 403 排障场景
+      const r401 = await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'unauthorized', messages: [{ role: 'user', content: 'hi' }] }) });
+      ok(r401.status === 401, 'U upstream 401 passes through, got ' + r401.status);
+      const log401 = (await (await fetch(base + '/api/logs?limit=5')).json()).find((l) => l.model === 'unauthorized');
+      ok(log401 && log401.status === 401, 'U 401 log exists');
+      ok(log401.detail?.out_headers && log401.detail.out_headers['user-agent'], 'U 401 (empty error field) still records outbound headers');
 
       // 收尾：恢复渠道 UA override，删除预设
       await fetch(base + '/api/channels/' + ch.id, {
