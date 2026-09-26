@@ -13,6 +13,8 @@ import type {
   ModelsCatalogEntry,
   SessionInfo,
   LogSummary,
+  ClientPreset,
+  ClientPresetHeader,
 } from './types';
 
 const SESSION_KEY = 'lapi_session';
@@ -108,6 +110,15 @@ export const api = {
   fetchModelsDraft: (c: Record<string, unknown>) => j<FetchModelsResult>(authFetch('/api/channels/fetch-models', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) })),
   listPresets: () => j<PresetsPayload>(authFetch('/api/presets')),
   applyPreset: (name: string) => j<ApplyPresetResult>(authFetch('/api/presets/apply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) })),
+  listClientPresets: () => j<ClientPreset[]>(authFetch('/api/client-presets')),
+  draftClientPreset: (inHeaders: Record<string, string>) =>
+    j<{ name: string; headers: ClientPresetHeader[] }>(authFetch('/api/client-presets/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ inHeaders }) })),
+  createClientPreset: (p: { name: string; strict: boolean; headers: ClientPresetHeader[] }) =>
+    j<{ ok: boolean; preset: ClientPreset }>(authFetch('/api/client-presets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) })),
+  updateClientPreset: (name: string, p: { name: string; strict: boolean; headers: ClientPresetHeader[] }) =>
+    j<{ ok: boolean; preset: ClientPreset }>(authFetch('/api/client-presets/' + encodeURIComponent(name), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) })),
+  deleteClientPreset: (name: string) =>
+    j<{ ok: boolean; removed: boolean }>(authFetch('/api/client-presets/' + encodeURIComponent(name), { method: 'DELETE' })),
   getCapture: () => j<CapturePayload>(authFetch('/api/capture')),
   toggleCapture: (enabled: boolean) => j<{ ok: boolean }>(authFetch('/api/capture/toggle', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) })),
   clearCapture: () => j<{ ok: boolean }>(authFetch('/api/capture', { method: 'DELETE' })),

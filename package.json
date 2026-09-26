@@ -9,7 +9,7 @@
     "start": "node --no-warnings server/index.js",
     "build": "vite --config web/vite.config.js build",
     "extract-presets": "node scripts/extract-cc-switch-presets.mjs",
-    "test": "node --test server/test/conversion.test.js server/test/conversion-anthropic-chat.test.js server/test/conversion-anthropic-responses.test.js server/test/conversion-chat-responses.test.js server/test/relay-lib.test.js server/test/usage.test.js server/test/auth.test.js"
+    "test": "node --test server/test/conversion.test.js server/test/conversion-anthropic-chat.test.js server/test/conversion-anthropic-responses.test.js server/test/conversion-chat-responses.test.js server/test/relay-lib.test.js server/test/usage.test.js server/test/auth.test.js server/test/client-presets.test.js"
   },
   "engines": {
     "node": ">=24"

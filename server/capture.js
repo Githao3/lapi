@@ -1,16 +1,20 @@
 // Header capture mode (core feature). When enabled, relay paths never forward;
 // instead they record incoming+outbound headers and echo them back as a 400 payload,
-// so a CLI tool prints them in its terminal. Sensitive header values are masked (G4).
+// so a CLI tool prints them in its terminal.
+// Headers are stored AS-IS (no masking): the records are the source material for
+// client impersonation presets, which need real session/credential values. That
+// makes capture records credential-equivalent — same trust level as the channel
+// keys stored alongside them in the same SQLite file.
 
 import {
   pickCandidateChannels,
   buildOutboundHeaders,
   normalizeUpstreamUrl,
-  maskSensitiveHeaders,
   bodyPreview,
   errorPayload,
 } from './relay-lib.js';
 import { listChannels, insertLog, getSetting } from './db.js';
+import { getPreset } from './client-presets.js';
 
 export function captureIsEnabled() {
   return getSetting('capture_enabled') === '1';
@@ -21,7 +25,7 @@ export function handleCapture(req, res, protocol, kind) {
   const model = req.body?.model ? String(req.body.model) : '';
   const channels = listChannels();
   const candidates = pickCandidateChannels(channels, protocol, model);
-  const inHeaders = maskSensitiveHeaders({ ...req.headers });
+  const inHeaders = { ...req.headers };
   let outHeaders = null;
   if (candidates.length) {
     const c = candidates[0];
@@ -35,8 +39,8 @@ export function handleCapture(req, res, protocol, kind) {
       userAgentOverride: c.user_agent_override,
       protocol,
       headerOverrides: c.header_overrides,
+      clientPreset: c.client_preset ? getPreset(c.client_preset) : null,
     });
-    outHeaders = maskSensitiveHeaders(outHeaders);
   }
  insertLog({
     kind: 'capture',

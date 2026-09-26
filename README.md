@@ -59,9 +59,11 @@ pnpm extract-presets # 重新提取 cc-switch 渠道预设
 
 「捕获」页打开全局开关后，`/v1/*`、`v1beta/*` 请求**不转发**，网关记下：
 
-1. 入站原始头（凭证自动打码：authorization / x-api-key / x-goog-api-key / cookie 及其他 key/token/secret 名头打码）；
+1. 入站原始头，**明文存储**（含 authorization / x-api-key / session 等——这是客户端伪装预设的原料，脱敏就拿不到真实值）；
 2. 出站改写头预览（按渠道配置 mock 计算，不真发上游）；
 3. body 预览（截断 4KB）。
+
+捕获记录因此与渠道 key 同级敏感，注意 `data/` 目录权限，用完在捕获页及时清理。
 
 并现场返回 400，错误消息内嵌以上两份头的格式化 JSON——本地工具终端里直接可读。面板「捕获」页会留档最近 200 条，可展开看全量头、一键复制、清空。捕获记录与转发日志**默认永久保存、互不挤占**（不会像早期版本那样被日常流量冲掉），统一在「日志 → 清理…」里按保留天数手动清理。
 
@@ -100,6 +102,11 @@ pnpm extract-presets # 重新提取 cc-switch 渠道预设
 - **精选层**：人工核对过的 15–20 条知名常用渠道（Kimi、Zhipu GLM、Baidu、DeepSeek、OpenRouter、SiliconFlow、ModelScope、Moonshot 等）。
 - **全部层**：从开源 cc-switch（MIT）的 `claudeProviderPresets.ts` 自动提取的约 50 条原样搬运，，标注「未逐一核实」；OAuth 类（Copilot/Codex/Grok）与协议不符的条目标「暂不支持」。
 
+此外还有两类伪装资产：
+
+- **UA 伪装预设**：只有一条 UA 字符串，适合轻度场景。
+- **客户端档案**（整组请求头）：从一条真实捕获自动分类生成——网关管辖头（host/认证/长度类）与 `anthropic-beta` 排除；session/thread/request 类头标 `fill`（客户端自带则透传、没带才补捕获值）；其余标 `fixed`（逐字重放）。三种模式在保存前可逐条修改。渠道引用档案时会自动把档案值导入 UA 覆盖与额外头字段（可逐头微调，渠道值优先），未改动的头跟随档案。适用场景：让 Claude Code 的流量走某个渠道时，整组头看起来就是 opencode/codex 在发。
+
 > 预设数据提取自开源 cc-switch（MIT），截至 2026-08，上游地址可能失效；如失效请各渠道官网确认后自行更正。重新提取：`pnpm extract-presets`。
 
 
@@ -125,7 +132,7 @@ pnpm extract-presets # 重新提取 cc-switch 渠道预设
 ```bash
 node scripts/e2e.mjs            # 端到端：本地假上游 8999，覆盖路由/认证注入/UA/SSE/failover（429 重试、5xx 耗尽、半路断流零重发）/捕获模式/双形态模型列表/双凭据鉴权
 node scripts/smoke-auth.mjs     # 冒烟：纯环境变量引导（容器启动方式）下的双凭据鉴权
-pnpm test                       # 纯函数：URL 归一化、头改写（含受保护名单）、三级模型匹配、打码器、凭据与会话
+pnpm test                       # 纯函数：URL 归一化、头改写（含受保护名单）、三级模型匹配、凭据与会话
 ```
 
 端到端全部通过即打印 `[e2e] ALL ASSERTIONS PASSED`。

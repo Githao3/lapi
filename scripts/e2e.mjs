@@ -35,7 +35,7 @@ async function seedChannels(base) {
     name: 'anthropic-e2e',
     protocol: 'anthropic',
     base_url: 'http://127.0.0.1:8999',
-    models: 'claude-sonnet-4-5,tool-msg',
+    models: 'claude-sonnet-4-5,tool-msg,unauthorized',
     api_key: 'sk-up-12345',
     auth_mode: 'bearer',
     user_agent_override: 'e2e-ua',
@@ -216,7 +216,7 @@ try {
       ok(fake.counts['flaky-drop'] === 1, 'drop: never retried after bytes');
     }
 
-// G: capture mode -> not forwarded, masked headers logged
+// G: capture mode -> not forwarded, RAW headers logged (preset source material)
     {
       await postJson(base + '/api/capture/toggle', { enabled: true });
       const r = await fetch(base + '/v1/messages', {
@@ -227,12 +227,12 @@ try {
       ok(r.status === 400, 'capture mode returns 400');
       const text = await r.text();
       ok(text.includes('INCOMING HEADERS'), 'capture payload shows incoming headers');
-      ok(text.includes('......'), 'capture masks secrets');
-      ok(!text.includes('sk-secret-client'), 'capture never echoes raw secret');
+      ok(text.includes('sk-secret-client'), 'capture echoes raw headers verbatim (by design)');
       ok(fake.counts['claude-sonnet-4-5'] === 1, 'capture never forwards (count unchanged');
       const caps = (await (await fetch(base + '/api/capture')).json()).entries;
       ok(caps.length === 1, 'capture entry logged');
       ok(caps[0].detail?.inHeaders, 'capture entry keeps inHeaders');
+      ok(caps[0].detail.inHeaders.authorization === 'Bearer sk-secret-client', 'capture stores raw credential (no masking)');
       await postJson(base + '/api/capture/toggle', { enabled: false });
     }
 
@@ -591,6 +591,112 @@ try {
       ok(String(j6?.error?.message ?? '').includes('no enabled channel'), 'S unknown model explains why');
     }
 
+    // U: client presets — classify a capture into a draft, then verify the three
+    //    modes end-to-end on the relay path (fixed 覆盖 / fill 补位透传 / drop 剔除).
+    {
+      // 抓一条带 session 的请求作为预设原料
+      await postJson(base + '/api/capture/toggle', { enabled: true });
+      await fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers: { ...headers, 'user-agent': 'opencode/9.9.9 test', 'x-session-id': 'ses_capture_1' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      await postJson(base + '/api/capture/toggle', { enabled: false });
+      const caps = (await (await fetch(base + '/api/capture')).json()).entries;
+      const cap = caps.find((c) => c.detail?.inHeaders?.['x-session-id'] === 'ses_capture_1');
+      ok(cap, 'U capture with session header exists');
+
+      const draft = await (await fetch(base + '/api/client-presets/draft', {
+        method: 'POST', headers, body: JSON.stringify({ inHeaders: cap.detail.inHeaders }),
+      })).json();
+      ok(draft.name === 'opencode', 'U draft name guessed from UA, got ' + draft.name);
+      const byName = Object.fromEntries(draft.headers.map((h) => [h.name, h]));
+      ok(byName['user-agent']?.mode === 'fixed', 'U identity headers default to fixed');
+      ok(byName['x-session-id']?.mode === 'fill' && byName['x-session-id']?.value === 'ses_capture_1', 'U session header classified fill with captured value');
+      ok(!draft.headers.some((h) => ['authorization', 'host', 'content-length', 'anthropic-beta'].includes(h.name)), 'U gateway-managed/auth/excluded headers are absent');
+
+      const created = await (await fetch(base + '/api/client-presets', {
+        method: 'POST', headers,
+        body: JSON.stringify({ name: draft.name, headers: [...draft.headers, { name: 'x-session-affinity', value: 'aff_pinned', mode: 'drop' }] }),
+      })).json();
+      ok(created.ok === true, 'U preset created');
+      console.log('[e2e][debug] created preset:', JSON.stringify(created.preset));
+      console.log('[e2e][debug] stored:', JSON.stringify((await (await fetch(base + '/api/client-presets')).json()).find(p => p.name === 'opencode')));
+
+      // 渠道引用档案（并清掉 UA override，二选一）
+      const channels = await (await fetch(base + '/api/channels')).json();
+      const ch = channels.find((c) => c.name === 'anthropic-e2e');
+      const putCh = await fetch(base + '/api/channels/' + ch.id, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ ...ch, client_preset: 'opencode', user_agent_override: '' }),
+      });
+      ok(putCh.ok, 'U channel now references the preset');
+
+      const relayReq = (extra, session) => fetch(base + '/v1/messages', {
+        method: 'POST',
+        headers: { ...headers, 'user-agent': 'some-other-client/1.0', 'sec-fetch-mode': 'no-cors', 'accept-language': 'zh-CN', ...(session ? { 'x-session-id': session } : {}), ...extra },
+        body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+
+      const r1 = await relayReq({ 'x-session-affinity': 'aff_should_die' }, 'ses_live_1');
+      ok(r1.status === 200, 'U relay with preset ok, got ' + r1.status);
+      let hit = lastHit('claude-sonnet-4-5');
+      ok(hit.ua === 'opencode/9.9.9 test', 'U fixed UA overrides client UA, got ' + hit.ua);
+      ok(hit.headers['x-session-id'] === 'ses_live_1', 'U fill passes the live session through');
+      ok(hit.headers['x-session-affinity'] == null, 'U drop removes the header entirely');
+      ok(hit.headers['sec-fetch-mode'] == null && hit.headers['accept-language'] == null, 'U strict mode strips client fingerprint headers');
+      ok(hit.host === '127.0.0.1:8999' && hit.auth === 'Bearer sk-up-12345', 'U host/auth stay channel-owned');
+
+      const r2 = await relayReq({}, '');
+      ok(r2.status === 200, 'U relay without session ok');
+      hit = lastHit('claude-sonnet-4-5');
+      ok(hit.headers['x-session-id'] === 'ses_capture_1', 'U fill backfills the pinned session, got ' + hit.headers['x-session-id']);
+
+      // 出站头记录：失败必记（含档案三态的效果）；开关打开后成功也记
+      await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'flaky-500', messages: [{ role: 'user', content: 'hi' }] }) });
+      const failResp = await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'flaky-500', messages: [{ role: 'user', content: 'hi' }] }) });
+      const sum = await (await fetch(base + '/api/logs/summary')).json();
+      const failLogs = (await (await fetch(base + '/api/logs?limit=10')).json());
+      const failLog = failLogs.find((l) => l.model === 'flaky-500');
+      ok(failLog && Array.isArray(failLog.detail?.attempts) && failLog.detail.attempts.length >= 1, 'U fail log carries attempts');
+      ok(failLog.detail.attempts.some((a) => a.out_headers && a.out_headers['user-agent']), 'U failed attempts carry outbound headers');
+      ok(failLog.detail.out_headers && failLog.detail.out_headers['user-agent'], 'U failed log carries final outbound headers');
+      ok(failLog.detail.out_headers.authorization === 'Bearer sk-flaky', 'U outbound headers show the channel key (plaintext by design)');
+
+      await fetch(base + '/api/config', { method: 'PUT', headers, body: JSON.stringify({ log_out_headers: '1' }) });
+      await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }) });
+      const okLogs = (await (await fetch(base + '/api/logs?limit=5')).json());
+      const okLog = okLogs.find((l) => l.model === 'claude-sonnet-4-5' && !l.error);
+      ok(okLog && okLog.detail?.out_headers && okLog.detail.out_headers['user-agent'], 'U success log records outbound headers when toggled');
+      await fetch(base + '/api/config', { method: 'PUT', headers, body: JSON.stringify({ log_out_headers: '0' }) });
+
+      // 4xx 且 error 字段为空的分支（如上游 401/403）也要记出站头——回归 403 排障场景
+      const r401 = await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'unauthorized', messages: [{ role: 'user', content: 'hi' }] }) });
+      ok(r401.status === 401, 'U upstream 401 passes through, got ' + r401.status);
+      const log401 = (await (await fetch(base + '/api/logs?limit=5')).json()).find((l) => l.model === 'unauthorized');
+      ok(log401 && log401.status === 401, 'U 401 log exists');
+      ok(log401.detail?.out_headers && log401.detail.out_headers['user-agent'], 'U 401 (empty error field) still records outbound headers');
+
+      // 渠道微调优先：UA 覆盖与档案引用共存时，渠道值胜出（便于逐头微调）
+      await fetch(base + '/api/channels/' + ch.id, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ ...ch, client_preset: 'opencode', user_agent_override: 'tweaked-ua' }),
+      });
+      const r3 = await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }) });
+      ok(r3.status === 200, 'U relay with tweaked UA ok, got ' + r3.status);
+      ok(lastHit('claude-sonnet-4-5').ua === 'tweaked-ua', 'U channel UA tweak wins over preset UA');
+
+      // 收尾：恢复渠道 UA override，删除预设
+      await fetch(base + '/api/channels/' + ch.id, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ ...ch, client_preset: '', user_agent_override: 'e2e-ua' }),
+      });
+      const dup = await fetch(base + '/api/client-presets', { method: 'POST', headers, body: JSON.stringify({ name: 'opencode', headers: [] }) });
+      ok(dup.status === 400, 'U duplicate preset name -> 400');
+      const del = await fetch(base + '/api/client-presets/opencode', { method: 'DELETE' });
+      ok(del.ok, 'U preset deleted');
+    }
+
     // T: log retention — nothing evicts automatically; manual cleanup by age works
     {
       // 造一条捕获记录，验证它与转发日志共存（旧的 1000 条全局滚动池会把捕获挤掉）
@@ -630,7 +736,7 @@ try {
       ok((await (await fetch(base + '/api/logs?limit=10')).json()).length === 0, 'T log list empty after cleanup');
     }
 
-    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S T');
+    console.log('[e2e] scenarios: A B C D E F G H I J K L M N O P Q R S T U');
     console.log('[e2e] ALL ASSERTIONS PASSED');
   } finally {
     console.log('[e2e][child-out]\n' + childOutput);

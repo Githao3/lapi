@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   normalizeUpstreamUrl,
   buildOutboundHeaders,
-  maskSensitiveHeaders,
   matchChannelForModel,
   pickCandidateChannels,
   pickWeightedChannel,
@@ -148,20 +147,6 @@ test("buildOutboundHeaders: extra overrides respect protected list", () => {
   assert.equal(o.cookie, undefined);
 });
 
-// ---------- masking ----------
-
-test("maskSensitiveHeaders: masks credentials, keeps rest", () => {
-  const m = maskSensitiveHeaders({
-    authorization: "Bearer sk-abcdef123456",
-    "x-api-key": "abc",
-    "user-agent": "cli/1.0",
-    "x-test-header": "hello",
-  });
-  assert.equal(m["user-agent"], "cli/1.0");
-  assert.equal(m["x-test-header"], "hello");
-  assert.notEqual(m.authorization, "Bearer sk-abcdef123456");
-  assert.ok(m.authorization.includes("......"));
-});
 
 
 // ---------- model matching ----------

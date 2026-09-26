@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, fmtTs } from '../api';
 import type { LogEntry } from '../types';
-import { Card, Button, Badge, EmptyState, PageHeader, Modal } from '../components/ui';
+import { Card, Button, Badge, EmptyState, PageHeader, Modal, Note } from '../components/ui';
 import { CleanupDialog } from '../components/CleanupDialog';
+import { ClientPresetEditor } from '../components/ClientPresetEditor';
 
 function KVList({ title, obj, empty }: { title: string; obj: Record<string, unknown> | null | undefined; empty: string }) {
   const keys = obj ? Object.keys(obj) : [];
@@ -33,6 +34,8 @@ function CaptureDialog({ log, onClose }: { log: LogEntry; onClose: () => void })
   const uaKey = Object.keys(inHeaders ?? {}).find((x) => x.toLowerCase() === 'user-agent');
   const ua = uaKey ? String(inHeaders?.[uaKey] ?? '').trim() : '';
   const [uaMsg, setUaMsg] = useState<string | null>(null);
+  const [presetDraft, setPresetDraft] = useState<{ name: string; headers: import('../types').ClientPresetHeader[] } | null>(null);
+  const [presetMsg, setPresetMsg] = useState<string | null>(null);
 
   const saveUa = async () => {
     if (!ua) return;
@@ -43,6 +46,22 @@ function CaptureDialog({ log, onClose }: { log: LogEntry; onClose: () => void })
       setUaMsg('保存失败，稍后再试');
     }
     setTimeout(() => setUaMsg(null), 4000);
+  };
+
+  const startPresetDraft = async () => {
+    if (!inHeaders) return;
+    try {
+      const draft = await api.draftClientPreset(inHeaders as Record<string, string>);
+      if (!draft.headers.length) {
+        setPresetMsg('这条捕获没有可收录的头（全部被网关管辖或排除）');
+        setTimeout(() => setPresetMsg(null), 5000);
+        return;
+      }
+      setPresetDraft(draft);
+    } catch (e) {
+      setPresetMsg('生成草稿失败：' + String((e as Error)?.message ?? e));
+      setTimeout(() => setPresetMsg(null), 5000);
+    }
   };
 
   const copyDetail = () => {
@@ -65,12 +84,14 @@ function CaptureDialog({ log, onClose }: { log: LogEntry; onClose: () => void })
             <span className="shrink-0 text-xs font-medium text-indigo-900">User-Agent</span>
             <span className="min-w-0 flex-1 break-all font-mono text-xs text-indigo-700" title={ua}>{ua}</span>
             <Button variant="subtle" onClick={saveUa}>存为 UA 预设</Button>
+            <Button variant="primary" onClick={startPresetDraft}>存为客户端预设</Button>
           </div>
         )}
         {uaMsg && <div className="text-xs font-medium text-emerald-700">{uaMsg}</div>}
-        <KVList title="入站请求头（已打码）" obj={inHeaders} empty="无" />
+        {presetMsg && <div className="text-xs font-medium text-amber-700">{presetMsg}</div>}
+        <KVList title="入站请求头（明文）" obj={inHeaders} empty="无" />
         <KVList
-          title="出站请求头（将发往上游，已打码）"
+          title="出站请求头（将发往上游，明文）"
           obj={outHeaders}
           empty="未构造出站头（无匹配渠道）"
         />
@@ -84,6 +105,19 @@ function CaptureDialog({ log, onClose }: { log: LogEntry; onClose: () => void })
           <Button variant="subtle" onClick={copyDetail}>复制详情 JSON</Button>
         </div>
       </div>
+      {presetDraft && (
+        <ClientPresetEditor
+          isNew
+          initialName={presetDraft.name}
+          initialHeaders={presetDraft.headers}
+          onClose={() => setPresetDraft(null)}
+          onSaved={(p) => {
+            setPresetDraft(null);
+            setPresetMsg(`已保存客户端预设「${p.name}」（${p.headers.length} 个头）——渠道编辑的「客户端档案」下拉里可选`);
+            setTimeout(() => setPresetMsg(null), 8000);
+          }}
+        />
+      )}
     </Modal>
   );
 }
@@ -120,7 +154,7 @@ export default function Capture() {
     <div className="space-y-5">
       <PageHeader
         title="捕获"
-        desc="开启后请求不转发，直接回显入站/出站两份请求头（凭证打码）"
+        desc="开启后请求不转发，直接回显入站/出站两份请求头（明文，含凭证与 session）"
       />
       <Card title="请求头捕获" actions={
         <div className="flex items-center gap-3">
@@ -138,7 +172,7 @@ export default function Capture() {
           <ol className="list-decimal space-y-1.5 pl-5">
             <li>打开上方捕获开关。</li>
             <li>把工具的 base URL 指向本网关：<code className="rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-indigo-700 ring-1 ring-black/[0.05]">http://127.0.0.1:8787</code></li>
-            <li>工具发请求后，工具终端会直接收到 400，里面内嵌「入站 + 出站」两份头（凭证已打码）；这里同时留档。</li>
+            <li>工具发请求后，工具终端会直接收到 400，里面内嵌「入站 + 出站」两份头（明文）；这里同时留档。</li>
             <li>点击任意记录查看结构化的两份头与 body 预览；遇到好用的 agent UA 可一键存为预设。</li>
           </ol>
         </div>
@@ -189,6 +223,9 @@ export default function Capture() {
           </div>
         )}
       </Card>
+      <Note tone="warn">
+        安全提示：捕获记录是<b>明文</b>保存的（包括 agent 的认证头与 session）——这是客户端预设的原料，代价是它们和渠道 key 同级敏感。请保持 data 目录权限，用完及时清理。
+      </Note>
       {selected && <CaptureDialog log={selected} onClose={() => setSelected(null)} />}
       {cleanupOpen && <CleanupDialog kind="capture" onClose={() => setCleanupOpen(false)} onDone={reload} />}
     </div>

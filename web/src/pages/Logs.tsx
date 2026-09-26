@@ -4,7 +4,7 @@ import type { LogEntry } from '../types';
 import { Card, Button, EmptyState, Badge, PageHeader, Modal } from '../components/ui';
 import { CleanupDialog } from '../components/CleanupDialog';
 
-type Attempt = { channel?: string; status?: number | null; error?: string };
+type Attempt = { channel?: string; status?: number | null; error?: string; out_headers?: Record<string, string> };
 type UsageInfo = { input_tokens?: number; output_tokens?: number; total_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
 
 function usageOf(log: LogEntry): UsageInfo | null {
@@ -57,6 +57,7 @@ function DetailDialog({ log, onClose }: { log: LogEntry; onClose: () => void }) 
   const usage = detail.usage as UsageInfo | undefined;
   const upstreamModel = typeof detail.upstream_model === 'string' ? detail.upstream_model : '';
   const mapped = upstreamModel && upstreamModel !== log.model;
+  const outHeaders = (detail.out_headers ?? null) as Record<string, string> | null;
   return (
     <Modal title="请求详情" onClose={onClose}>
       <div className="space-y-4 text-sm">
@@ -85,6 +86,19 @@ function DetailDialog({ log, onClose }: { log: LogEntry; onClose: () => void }) 
             </dl>
           </div>
         )}
+        {outHeaders && Object.keys(outHeaders).length > 0 && (
+          <div className="rounded-xl border border-black/[0.06] p-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">出站请求头（实际发出，明文）</div>
+            <div className="overflow-hidden rounded-lg bg-white ring-1 ring-black/[0.06]">
+              {Object.entries(outHeaders).map(([k, v]) => (
+                <div key={k} className="flex gap-3 border-b border-black/[0.04] px-3 py-1.5 last:border-b-0">
+                  <span className="w-44 shrink-0 truncate font-mono text-[11px] text-zinc-400" title={k}>{k}</span>
+                  <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-zinc-700">{String(v)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {log.error && (
           <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-4">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-rose-500">错误</div>
@@ -109,6 +123,21 @@ function DetailDialog({ log, onClose }: { log: LogEntry; onClose: () => void }) 
                     <StatusNum status={a.status ?? null} />
                   </div>
                   {a.error && <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-white p-2 font-mono text-[11px] leading-relaxed text-zinc-600 ring-1 ring-black/[0.05]">{a.error}</pre>}
+                  {a.out_headers && Object.keys(a.out_headers).length > 0 && (
+                    <details className="mt-1.5">
+                      <summary className="cursor-pointer select-none text-[11px] text-zinc-400 transition-colors hover:text-zinc-600">
+                        该次尝试的出站请求头（{Object.keys(a.out_headers).length} 个）
+                      </summary>
+                      <div className="mt-1.5 overflow-hidden rounded bg-white ring-1 ring-black/[0.06]">
+                        {Object.entries(a.out_headers).map(([k, v]) => (
+                          <div key={k} className="flex gap-3 border-b border-black/[0.04] px-2.5 py-1 last:border-b-0">
+                            <span className="w-40 shrink-0 truncate font-mono text-[10.5px] text-zinc-400" title={k}>{k}</span>
+                            <span className="min-w-0 flex-1 break-all font-mono text-[10.5px] text-zinc-700">{String(v)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
               ))}
             </div>

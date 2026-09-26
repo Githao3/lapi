@@ -15,6 +15,8 @@ import { egressOptions } from './egress.js';
 import { listChannels, insertLog, getSetting } from './db.js';
 import { handleCapture, captureIsEnabled } from './capture.js';
 import { convertRequestBody, convertResponseBody, createLineConverter, convertUpstreamError } from './conversion/index.mjs';
+import { getPreset } from './client-presets.js';
+import { request as undiciRequest } from 'undici';
 
 const STREAM_IDLE_MS = 90000;
 
@@ -47,6 +49,7 @@ const channels = listChannels();
  let clientError = '';
  let lastUsage = null;
  let lastUpstreamModel = '';
+ let lastOutHeaders = null;
  const attempts = [];
  for (let attempt =   0; attempt < 2; attempt++) {
     const c = pickWeightedChannel(candidates);
@@ -56,6 +59,7 @@ const channels = listChannels();
     if (out.attempt) attempts.push(out.attempt);
     if (out.usage) lastUsage = out.usage;
     if (out.upstreamModel) lastUpstreamModel = out.upstreamModel;
+    if (out.out_headers) lastOutHeaders = out.out_headers;
     if (out.clientError) {
       clientError = out.clientError;
       lastError = '';
@@ -81,7 +85,7 @@ const channels = listChannels();
     const payload = errorPayload(protocol, 'relay failed: ' + lastError);
     res.status(502).set('content-type', 'application/json').send(JSON.stringify(payload));
   }
- logRelay(started, req, res, protocol, attemptChannel, model, lastError, attempts, clientError, lastUsage, lastUpstreamModel);
+ logRelay(started, req, res, protocol, attemptChannel, model, lastError, attempts, clientError, lastUsage, lastUpstreamModel, lastOutHeaders);
 }
 
 // ---------- helpers ----------
@@ -125,6 +129,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
     protocol,
     upstreamKind: upKind,
     headerOverrides: c.header_overrides,
+    clientPreset: c.client_preset ? getPreset(c.client_preset) : null,
   });
   let outBody = body;
   if (needConvert) {
@@ -139,61 +144,65 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
   const upstreamModel = String(upstreamBody?.model ?? body?.model ?? '');
   let resp;
   try {
-    resp = await fetch(targetUrl, {
+    // undici.request（而非全局 fetch）：只发送我们构造的头。fetch 会自动注入
+    // sec-fetch-mode / accept-language / accept: */* 等指纹头，伪装场景不可接受。
+    resp = await undiciRequest(targetUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(upstreamBody),
       signal: clientAbort ? AbortSignal.any([AbortSignal.timeout(300000), clientAbort]) : AbortSignal.timeout(300000),
-      duplex: 'half',
       ...egressOptions(targetUrl),
     });
   } catch (e) {
     if (clientAbort?.aborted) {
       return { done: true, retryable: false, error: 'client aborted', sentBytes: false };
     }
-    return { done: false, retryable: true, error: String(e && e.message ? e.message : e), sentBytes: false, attempt: { channel: c.name, status: null, error: String(e && e.message ? e.message : e) } };
+    return { done: false, retryable: true, error: String(e && e.message ? e.message : e), sentBytes: false, attempt: { channel: c.name, status: null, error: String(e && e.message ? e.message : e), out_headers: headers } };
   }
-  if (resp.status >=500 || (resp.status === 429 && resp.headers.get('retry-after'))) {
-    const errText = await resp.text().catch(() => '');
-    return { done: false, retryable: true, error: 'upstream status ' + resp.status, sentBytes: false, attempt: { channel: c.name, status: resp.status, error: maskSecrets(errText, c) } };
+  const status = resp.statusCode;
+  const getHeader = (name) => {
+    const v = resp.headers[name];
+    return Array.isArray(v) ? v[0] : (v ?? null);
+  };
+  if (status >=500 || (status === 429 && getHeader('retry-after'))) {
+    const errText = await readBodyString(resp.body).catch(() => '');
+    return { done: false, retryable: true, error: 'upstream status ' + status, sentBytes: false, out_headers: headers, attempt: { channel: c.name, status, error: maskSecrets(errText, c), out_headers: headers } };
   }
-  if (resp.status >=400) {
-    const raw = await resp.text().catch(() => '');
+  if (status >=400) {
+    const raw = await readBodyString(resp.body).catch(() => '');
     let out = raw;
     if (raw) {
       try {
         const j = JSON.parse(raw);
-        out = JSON.stringify(convertUpstreamError(j, localKind, 'upstream status ' + resp.status));
+        out = JSON.stringify(convertUpstreamError(j, localKind, 'upstream status ' + status));
       } catch { /* non-JSON error body: pass through */ }
     } else {
-      out = JSON.stringify(errorPayload(protocol, 'upstream status ' + resp.status));
+      out = JSON.stringify(errorPayload(protocol, 'upstream status ' + status));
     }
-    res.status(resp.status);
+    res.status(status);
     res.set('content-type', 'application/json');
     res.send(out);
-    return { done: true, retryable: false, error: '', sentBytes: false, attempt: { channel: c.name, status: resp.status, error: maskSecrets(raw, c) } };
+    return { done: true, retryable: false, error: '', sentBytes: false, out_headers: headers, attempt: { channel: c.name, status, error: maskSecrets(raw, c), out_headers: headers } };
   }
   // pipe through (streaming or buffered)
   let sentBytes = false;
   let conv = null;
   let usage = null;
   let scanner = null;
-  res.status(resp.status);
+  res.status(status);
   for (const h of ['content-type', 'cache-control', 'retry-after']) {
-    const v = resp.headers.get(h);
+    const v = getHeader(h);
     if (v) res.set(h, v);
   }
-  const ct = resp.headers.get('content-type') ?? '';
+  const ct = getHeader('content-type') ?? '';
   const isStream = ct.includes('text/event-stream') || ct.includes('application/x-ndjson');
   try {
     if (isStream) {
       conv = needConvert ? createLineConverter(upKind, localKind) : null;
       scanner = createUsageScanner(upKind);
-      const reader = resp.body.getReader();
       let lastData = Date.now();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      for await (const chunk of resp.body) {
+        const value = chunk ? Buffer.from(chunk) : null;
         if (value && value.length) {
           scanner.push(value);
           let out = value;
@@ -204,7 +213,10 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
             lastData = Date.now();
           }
         }
-        if (Date.now() - lastData > STREAM_IDLE_MS) break;
+        if (Date.now() - lastData > STREAM_IDLE_MS) {
+          resp.body.destroy();
+          break;
+        }
       }
       if (conv) {
         const tail = Buffer.from(conv.end(), 'utf8');
@@ -213,7 +225,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
       try { usage = scanner.end(); } catch { /* usage scan is best-effort */ }
       res.end();
     } else {
-      const buf = Buffer.from(await resp.arrayBuffer());
+      const buf = await readBodyBuffer(resp.body);
       try { usage = extractUsageFromJson(upKind, JSON.parse(buf.toString('utf8'))); } catch { /* non-JSON or no usage */ }
       if (needConvert && buf.length) {
         let convErr = '';
@@ -230,7 +242,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
           res.set('content-type', 'application/json');
           res.end(JSON.stringify(errorPayload(protocol, convErr)));
         }
-        return { done: true, retryable: false, error: convErr, sentBytes, attempt: { channel: c.name, status: resp.status, error: convErr }, usage, upstreamModel };
+        return { done: true, retryable: false, error: convErr, sentBytes, attempt: { channel: c.name, status, error: convErr }, usage, upstreamModel };
       }
       sentBytes = buf.length >0;
       res.end(buf);
@@ -250,7 +262,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
     }
     res.end();
   }
-  return { done: true, retryable: false, error: '', sentBytes, usage, upstreamModel };
+  return { done: true, retryable: false, error: '', sentBytes, usage, upstreamModel, out_headers: headers };
 }
 function applyModelMapping(body, mapping) {
   if (!mapping) return body;
@@ -261,7 +273,7 @@ function applyModelMapping(body, mapping) {
  return body;
 }
 
-function logRelay(started, req, res, protocol, channel, model, lastError, attempts, clientError, usage, upstreamModel) {
+function logRelay(started, req, res, protocol, channel, model, lastError, attempts, clientError, usage, upstreamModel, outHeaders) {
   if (getSetting('logging_enabled') !== '1') return;
  if (!channel) {
     insertLog({
@@ -286,7 +298,8 @@ function logRelay(started, req, res, protocol, channel, model, lastError, attemp
     status: res.statusCode ?? null,
     ms: Date.now() - started,
     error: lastError,
-    detail: buildRelayDetail(attempts, clientError, usage, upstreamModel),
+    // 4xx/5xx 的 error 字段可能为空（错误体直接回给客户端了），状态码也算失败
+    detail: buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, lastError || clientError || (res.statusCode ?? 0) >= 400),
   });
 }
 
@@ -300,12 +313,29 @@ function maskSecrets(text, channel) {
   return t;
 }
 
-function buildRelayDetail(attempts, clientError, usage, upstreamModel) {
+// 读取上游响应体为字符串（undici.request 的 body 是异步可迭代流）
+async function readBodyString(body) {
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function readBodyBuffer(body) {
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+function buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, isFailure) {
   const detail = {};
   if (attempts && attempts.length) detail.attempts = attempts;
   if (clientError) detail.clientError = clientError;
   if (usage) detail.usage = usage;
   if (upstreamModel) detail.upstream_model = upstreamModel;
+  // 出站头快照：失败请求总是记录（排障刚需）；设置打开后成功请求也记录
+  if (outHeaders && (isFailure || getSetting('log_out_headers') === '1')) {
+    detail.out_headers = outHeaders;
+  }
   return detail;
 }
 

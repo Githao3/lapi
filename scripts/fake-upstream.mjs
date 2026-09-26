@@ -22,6 +22,7 @@ function logHit(req, body) {
     ua: h['user-agent'],
     acceptEncoding: h['accept-encoding'],
     anthropicVersion: h['anthropic-version'],
+    headers: h,
     model: body?.model ?? null,
     body,
   });
@@ -182,6 +183,10 @@ const server = createServer(async (req, res) => {
       res.write(sseData({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 17 } }));
       res.write(sseData({ type: 'message_stop' }));
       res.end();
+      return;
+    }
+    if (m.includes('unauthorized')) {
+      json(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } });
       return;
     }
     if (m.includes('tool-msg')) {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { Channel, AuthMode } from '../types';
+import type { Channel, AuthMode, ClientPreset } from '../types';
 import { Card, Button, Badge, Field, Select, Modal, Note, EmptyState, PageHeader, inputCls } from '../components/ui';
 
 const DRAFT_KEY = 'lapi-draft';
@@ -14,6 +14,7 @@ function emptyChannel(): Channel {
     api_key: '',
     auth_mode: 'bearer',
     user_agent_override: '',
+    client_preset: '',
     header_overrides: {},
     model_mapping: {},
     models: '',
@@ -111,6 +112,7 @@ export default function Channels() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [editing, setEditing] = useState<Channel | null>(null);
   const [uaPresets, setUaPresets] = useState<string[]>([]);
+  const [clientPresets, setClientPresets] = useState<ClientPreset[]>([]);
   const [fetched, setFetched] = useState<{ models: string[]; error: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -118,6 +120,7 @@ export default function Channels() {
   useEffect(() => {
     reload();
     api.listPresets().then((p) => setUaPresets(p.uaPresets ?? [])).catch(() => {});
+    api.listClientPresets().then(setClientPresets).catch(() => {});
     const raw = localStorage.getItem(DRAFT_KEY);
     if (raw) {
       try {
@@ -288,7 +291,7 @@ export default function Channels() {
                 ]}
               />
             </Field>
-            <Field label="User-Agent 覆盖">
+            <Field label="User-Agent 覆盖" hint="选中客户端档案后会自动填入档案值，可在此微调；清空则透传客户端值。">
               <input className={inputCls} value={editing.user_agent_override} onChange={(e) => set({ user_agent_override: e.target.value })} placeholder="留空则透传客户端值" />
             </Field>
             <div className="md:col-span-2">
@@ -305,6 +308,51 @@ export default function Channels() {
                     ))}
                   </select>
                   {editing.user_agent_override && <Button variant="subtle" onClick={() => set({ user_agent_override: '' })}>清除</Button>}
+                </div>
+              </Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field
+                label="客户端档案（引用后自动导入到上方字段）"
+                hint="选中即把档案整组头导入上方 UA 覆盖和额外头覆盖（含 session 类，值为捕获时的值），逐头可改——渠道值优先；删除某行则该头回落到档案语义（fill 补位）。"
+              >
+                <div className="flex gap-2">
+                  <select
+                    className={inputCls}
+                    value={editing.client_preset}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const p = clientPresets.find((x) => x.name === v);
+                      if (!p) {
+                        set({ client_preset: '' });
+                        return;
+                      }
+                      // 导入档案整组头（含 session 类）到渠道字段，逐头可见可改；
+                      // drop 行与网关管辖头不导入。渠道值优先，未改的跟随档案。
+                      const MANAGED = new Set(['host', 'content-length', 'content-type', 'accept-encoding', 'connection', 'transfer-encoding', 'keep-alive', 'upgrade', 'te', 'trailer', 'proxy-connection', 'proxy-authorization', 'authorization', 'x-api-key', 'x-goog-api-key', 'cookie', 'traceparent', 'tracestate', 'x-request-id', 'anthropic-version']);
+                      const overrides: Record<string, string> = {};
+                      let ua = '';
+                      for (const h of p.headers) {
+                        if (h.mode === 'drop' || MANAGED.has(h.name)) continue;
+                        if (h.name === 'user-agent') {
+                          ua = h.value;
+                          continue;
+                        }
+                        overrides[h.name] = h.value;
+                      }
+                      set({ client_preset: v, user_agent_override: ua, header_overrides: { ...editing.header_overrides, ...overrides } });
+                    }}
+                  >
+                    <option value="">不使用客户端档案</option>
+                    {clientPresets.map((p) => (
+                      <option key={p.name} value={p.name}>{p.name}（{p.headers.length} 个头）</option>
+                    ))}
+                    {/* 幽灵引用（预设已被删除）也要如实显示，避免 UI 与实际状态不符 */}
+                    {editing.client_preset && !clientPresets.some((p) => p.name === editing.client_preset) && (
+                      <option value={editing.client_preset}>{editing.client_preset}（预设已删除，点清除恢复）</option>
+                    )}
+                  </select>
+                  {editing.client_preset && <Button variant="subtle" onClick={() => set({ client_preset: '' })}>清除</Button>}
                 </div>
               </Field>
             </div>

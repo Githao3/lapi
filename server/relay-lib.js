@@ -95,6 +95,12 @@ function isDroppedHeader(name) {
   }
   return false;
 }
+export { isDroppedHeader };
+
+function isProtectedOverrideHeader(name) {
+  return PROTECTED_OVERRIDE_HEADERS.has(String(name).toLowerCase());
+}
+export { isProtectedOverrideHeader };
 
 // clientHeaders: node req.headers, lowercased keys.
 
@@ -129,11 +135,6 @@ apiKey = String(apiKey).trim();
     if (authMode === 'x-api-key') out['x-api-key'] = apiKey;
     if (authMode === 'x-goog-api-key') out['x-goog-api-key'] = apiKey;
   }
- if (userAgentOverride) {
-    out['user-agent'] = String(userAgentOverride);
-  } else if (clientHeaders['user-agent']) {
-    out['user-agent'] = clientHeaders['user-agent'];
-  }
  out['content-type'] = 'application/json';
  out['accept'] = 'application/json';
  out['accept-encoding'] = 'identity';
@@ -146,6 +147,16 @@ apiKey = String(apiKey).trim();
   } else if (upstreamKind != null) {
     // openai-declared channel: a client-sent anthropic-version is protocol noise — drop it.
     delete out['anthropic-version'];
+  }
+ // Client impersonation profile: fixed/fill/drop rows plus the strict scrub of
+ // client fingerprint headers. Slots in above gateway defaults.
+ if (opts.clientPreset) {
+    applyClientPreset(out, opts.clientPreset);
+  }
+ // Channel-level UA override lands LAST among identity layers so a per-channel
+ // tweak wins over the profile's pinned UA. Empty = keep the passthrough value.
+ if (userAgentOverride) {
+    out['user-agent'] = String(userAgentOverride);
   }
  for (const [k, v] of Object.entries(headerOverrides)) {
     const name = String(k).toLowerCase().trim();
@@ -160,25 +171,57 @@ apiKey = String(apiKey).trim();
  return out;
 }
 
-// ---------- secret masking ----------
+// ---------- client impersonation presets ----------
 
-const SECRET_HEADER_RE = /(authorization|x-api-key|x-goog-api-key|proxy-authorization|cookie|set-cookie|api[_-]?key|token|secret|session|password)/i;
+// Under strict mode these survive the scrub (they're recomputed by the gateway,
+// not client identity); everything else the client sent is dropped so the
+// outbound exactly matches the captured fingerprint.
+const STRICT_KEEP = new Set([
+  'host',
+  'authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'content-type',
+  'content-length',
+  'accept',
+  'accept-encoding',
+  'anthropic-version',
+]);
 
-export function maskSensitiveHeaders(headers) {
-  const out = {};
- for (const [k, v] of Object.entries(headers)) {
-    if (k && SECRET_HEADER_RE.test(String(k))) {
-      const s = Array.isArray(v) ? v.join(', ') : String(v ?? '');
-      if (s.length > 12) {
-        out[k] = s.slice(0, 6) + '......' + s.slice(-4);
-      } else {
-        out[k] = '......';
-      }
-    } else {
-      out[k] = Array.isArray(v) ? v.join(', ') : v;
+// Applies a client preset onto the outbound header set:
+//   strict — strip every client header the profile doesn't list, then apply rows
+//            (the outbound becomes a faithful replay of the captured fingerprint)
+//   fixed — always override (the profile owns this header's identity)
+//   fill  — pass the client's live value through; only backfill the pinned
+//           value when the client sent nothing (e.g. session ids)
+//   drop  — remove the header from the outbound set
+// Gateway-managed headers (host/auth/framing/length) can never be touched.
+export function applyClientPreset(out, preset) {
+  if (!preset || !Array.isArray(preset.headers)) return out;
+  const rows = new Map();
+  for (const h of preset.headers) {
+    const name = String(h?.name ?? '').toLowerCase().trim();
+    if (!name || isProtectedOverrideHeader(name)) continue;
+    rows.set(name, h);
+  }
+  if (preset.strict) {
+    for (const k of Object.keys(out)) {
+      if (!STRICT_KEEP.has(k) && !rows.has(k)) delete out[k];
     }
   }
- return out;
+  for (const [name, h] of rows) {
+    const value = String(h?.value ?? '');
+    if (h.mode === 'fixed') {
+      out[name] = value;
+    } else if (h.mode === 'fill') {
+      const cur = out[name];
+      // 缺了才补；补位的值是空串时宁可不发，也不发一个空头
+      if ((cur == null || cur === '') && value !== '') out[name] = value;
+    } else if (h.mode === 'drop') {
+      delete out[name];
+    }
+  }
+  return out;
 }
 
 // ---------- model matching, 3 levels ----------
