@@ -677,6 +677,15 @@ try {
       ok(log401 && log401.status === 401, 'U 401 log exists');
       ok(log401.detail?.out_headers && log401.detail.out_headers['user-agent'], 'U 401 (empty error field) still records outbound headers');
 
+      // 渠道微调优先：UA 覆盖与档案引用共存时，渠道值胜出（便于逐头微调）
+      await fetch(base + '/api/channels/' + ch.id, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ ...ch, client_preset: 'opencode', user_agent_override: 'tweaked-ua' }),
+      });
+      const r3 = await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }) });
+      ok(r3.status === 200, 'U relay with tweaked UA ok, got ' + r3.status);
+      ok(lastHit('claude-sonnet-4-5').ua === 'tweaked-ua', 'U channel UA tweak wins over preset UA');
+
       // 收尾：恢复渠道 UA override，删除预设
       await fetch(base + '/api/channels/' + ch.id, {
         method: 'PUT', headers,

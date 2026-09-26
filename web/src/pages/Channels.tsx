@@ -291,14 +291,8 @@ export default function Channels() {
                 ]}
               />
             </Field>
-            <Field label="User-Agent 覆盖">
-              <input
-                className={inputCls}
-                value={editing.user_agent_override}
-                disabled={!!editing.client_preset}
-                onChange={(e) => set({ user_agent_override: e.target.value })}
-                placeholder={editing.client_preset ? '已由客户端档案接管' : '留空则透传客户端值'}
-              />
+            <Field label="User-Agent 覆盖" hint="选中客户端档案后会自动填入档案值，可在此微调；清空则透传客户端值。">
+              <input className={inputCls} value={editing.user_agent_override} onChange={(e) => set({ user_agent_override: e.target.value })} placeholder="留空则透传客户端值" />
             </Field>
             <div className="md:col-span-2">
               <Field label="UA 伪装预设" hint="内置 cc-switch 预设 + 捕获页保存的 agent UA；是否使用由你显式选择。">
@@ -306,7 +300,6 @@ export default function Channels() {
                   <select
                     className={inputCls}
                     value=""
-                    disabled={!!editing.client_preset}
                     onChange={(e) => { if (e.target.value) set({ user_agent_override: e.target.value }); }}
                   >
                     <option value="">选择预设…</option>
@@ -314,20 +307,39 @@ export default function Channels() {
                       <option key={u} value={u}>{u}</option>
                     ))}
                   </select>
-                  {editing.user_agent_override && !editing.client_preset && <Button variant="subtle" onClick={() => set({ user_agent_override: '' })}>清除</Button>}
+                  {editing.user_agent_override && <Button variant="subtle" onClick={() => set({ user_agent_override: '' })}>清除</Button>}
                 </div>
               </Field>
             </div>
             <div className="md:col-span-2">
               <Field
-                label="客户端档案（与 UA 伪装二选一，优先）"
-                hint="引用整组请求头档案（预设库里管理，捕获页可从真实请求生成）：fixed 覆盖 / fill 补位 / drop 剔除。选中后上方 UA 伪装失效并被清除。"
+                label="客户端档案（引用后自动导入到上方字段）"
+                hint="选中即把档案的 UA 与固定头导入上方 UA 覆盖和额外头覆盖，可直接逐头微调——渠道值优先于档案；未覆盖的头仍跟随档案（fill 补位 / 严格裁剪）。"
               >
                 <div className="flex gap-2">
                   <select
                     className={inputCls}
                     value={editing.client_preset}
-                    onChange={(e) => set({ client_preset: e.target.value, ...(e.target.value ? { user_agent_override: '' } : {}) })}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const p = clientPresets.find((x) => x.name === v);
+                      if (!p) {
+                        set({ client_preset: '' });
+                        return;
+                      }
+                      // 导入档案：fixed 行进渠道字段（UA + 额外头），fill 行留在档案里保持活值语义
+                      const overrides: Record<string, string> = {};
+                      let ua = '';
+                      for (const h of p.headers) {
+                        if (h.mode !== 'fixed') continue;
+                        if (h.name === 'user-agent') {
+                          ua = h.value;
+                          continue;
+                        }
+                        overrides[h.name] = h.value;
+                      }
+                      set({ client_preset: v, user_agent_override: ua, header_overrides: { ...overrides, ...editing.header_overrides } });
+                    }}
                   >
                     <option value="">不使用客户端档案</option>
                     {clientPresets.map((p) => (

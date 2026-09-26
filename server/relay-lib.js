@@ -135,11 +135,6 @@ apiKey = String(apiKey).trim();
     if (authMode === 'x-api-key') out['x-api-key'] = apiKey;
     if (authMode === 'x-goog-api-key') out['x-goog-api-key'] = apiKey;
   }
- if (userAgentOverride) {
-    out['user-agent'] = String(userAgentOverride);
-  } else if (clientHeaders['user-agent']) {
-    out['user-agent'] = clientHeaders['user-agent'];
-  }
  out['content-type'] = 'application/json';
  out['accept'] = 'application/json';
  out['accept-encoding'] = 'identity';
@@ -153,10 +148,15 @@ apiKey = String(apiKey).trim();
     // openai-declared channel: a client-sent anthropic-version is protocol noise — drop it.
     delete out['anthropic-version'];
   }
- // Client impersonation profile slots in above gateway defaults but below channel
- // overrides (applied next), so a channel can always pin its own value on top.
+ // Client impersonation profile: fixed/fill/drop rows plus the strict scrub of
+ // client fingerprint headers. Slots in above gateway defaults.
  if (opts.clientPreset) {
     applyClientPreset(out, opts.clientPreset);
+  }
+ // Channel-level UA override lands LAST among identity layers so a per-channel
+ // tweak wins over the profile's pinned UA. Empty = keep the passthrough value.
+ if (userAgentOverride) {
+    out['user-agent'] = String(userAgentOverride);
   }
  for (const [k, v] of Object.entries(headerOverrides)) {
     const name = String(k).toLowerCase().trim();

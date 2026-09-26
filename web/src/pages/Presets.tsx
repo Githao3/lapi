@@ -144,8 +144,8 @@ export default function Presets() {
       <Card title="客户端伪装档案（整组请求头）">
         <div className="space-y-3">
           <p className="text-xs leading-relaxed text-zinc-500">
-            一条捕获 = 一个客户端的完整身份：渠道引用档案后，出站请求按 fixed 覆盖 / fill 补位 / drop 剔除套用整组头，比只伪装 UA 完整得多。
-            在「捕获」页打开任意记录点「存为客户端预设」即可新建。与渠道的 UA 伪装二选一，档案优先。
+            一条捕获 = 一个客户端的完整身份：渠道引用档案后，档案值会自动导入渠道的 UA 与额外头字段（可逐头微调，渠道值优先），未改动的头跟随档案（fixed 覆盖 / fill 补位 / drop 剔除 / 严格裁剪指纹头）。
+            在「捕获」页打开任意记录点「存为客户端预设」即可新建。
           </p>
           {clientPresets.length === 0 ? (
             <EmptyState text="还没有客户端档案——去捕获页从真实请求生成一条。" />

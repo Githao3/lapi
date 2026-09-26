@@ -81,17 +81,12 @@ export function attachCrud(app) {
   });
 
   app.post('/api/channels', (req, res) => {
-    const body = { ...(req.body ?? {}) };
-    // UA 伪装与客户端档案二选一：引用档案时清掉独立 UA
-    if (body.client_preset) body.user_agent_override = '';
-    const id = insertChannel(body);
+    const id = insertChannel(req.body ?? {});
     res.json({ ok: true, id });
   });
 
   app.put('/api/channels/:id', (req, res) => {
-    const body = { ...(req.body ?? {}) };
-    if (body.client_preset) body.user_agent_override = '';
-    updateChannel(Number(req.params.id), body);
+    updateChannel(Number(req.params.id), req.body ?? {});
     res.json({ ok: true });
   });
 

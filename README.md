@@ -102,10 +102,10 @@ pnpm extract-presets # 重新提取 cc-switch 渠道预设
 - **精选层**：人工核对过的 15–20 条知名常用渠道（Kimi、Zhipu GLM、Baidu、DeepSeek、OpenRouter、SiliconFlow、ModelScope、Moonshot 等）。
 - **全部层**：从开源 cc-switch（MIT）的 `claudeProviderPresets.ts` 自动提取的约 50 条原样搬运，，标注「未逐一核实」；OAuth 类（Copilot/Codex/Grok）与协议不符的条目标「暂不支持」。
 
-此外还有两类伪装资产，在渠道编辑里**二选一**（同时配置时客户端档案优先）：
+此外还有两类伪装资产：
 
 - **UA 伪装预设**：只有一条 UA 字符串，适合轻度场景。
-- **客户端档案**（整组请求头）：从一条真实捕获自动分类生成——网关管辖头（host/认证/长度类）与 `anthropic-beta` 排除；session/thread/request 类头标 `fill`（客户端自带则透传、没带才补捕获值）；其余标 `fixed`（逐字重放）。三种模式在保存前可逐条修改。适用场景：让 Claude Code 的流量走某个渠道时，整组头看起来就是 opencode/codex 在发。
+- **客户端档案**（整组请求头）：从一条真实捕获自动分类生成——网关管辖头（host/认证/长度类）与 `anthropic-beta` 排除；session/thread/request 类头标 `fill`（客户端自带则透传、没带才补捕获值）；其余标 `fixed`（逐字重放）。三种模式在保存前可逐条修改。渠道引用档案时会自动把档案值导入 UA 覆盖与额外头字段（可逐头微调，渠道值优先），未改动的头跟随档案。适用场景：让 Claude Code 的流量走某个渠道时，整组头看起来就是 opencode/codex 在发。
 
 > 预设数据提取自开源 cc-switch（MIT），截至 2026-08，上游地址可能失效；如失效请各渠道官网确认后自行更正。重新提取：`pnpm extract-presets`。
 
