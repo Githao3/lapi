@@ -314,7 +314,7 @@ export default function Channels() {
             <div className="md:col-span-2">
               <Field
                 label="客户端档案（引用后自动导入到上方字段）"
-                hint="选中即把档案的 UA 与固定头导入上方 UA 覆盖和额外头覆盖，可直接逐头微调——渠道值优先于档案；未覆盖的头仍跟随档案（fill 补位 / 严格裁剪）。"
+                hint="选中即把档案整组头导入上方 UA 覆盖和额外头覆盖（含 session 类，值为捕获时的值），逐头可改——渠道值优先；删除某行则该头回落到档案语义（fill 补位）。"
               >
                 <div className="flex gap-2">
                   <select
@@ -327,18 +327,20 @@ export default function Channels() {
                         set({ client_preset: '' });
                         return;
                       }
-                      // 导入档案：fixed 行进渠道字段（UA + 额外头），fill 行留在档案里保持活值语义
+                      // 导入档案整组头（含 session 类）到渠道字段，逐头可见可改；
+                      // drop 行与网关管辖头不导入。渠道值优先，未改的跟随档案。
+                      const MANAGED = new Set(['host', 'content-length', 'content-type', 'accept-encoding', 'connection', 'transfer-encoding', 'keep-alive', 'upgrade', 'te', 'trailer', 'proxy-connection', 'proxy-authorization', 'authorization', 'x-api-key', 'x-goog-api-key', 'cookie', 'traceparent', 'tracestate', 'x-request-id', 'anthropic-version']);
                       const overrides: Record<string, string> = {};
                       let ua = '';
                       for (const h of p.headers) {
-                        if (h.mode !== 'fixed') continue;
+                        if (h.mode === 'drop' || MANAGED.has(h.name)) continue;
                         if (h.name === 'user-agent') {
                           ua = h.value;
                           continue;
                         }
                         overrides[h.name] = h.value;
                       }
-                      set({ client_preset: v, user_agent_override: ua, header_overrides: { ...overrides, ...editing.header_overrides } });
+                      set({ client_preset: v, user_agent_override: ua, header_overrides: { ...editing.header_overrides, ...overrides } });
                     }}
                   >
                     <option value="">不使用客户端档案</option>
