@@ -25,7 +25,7 @@ import { fetchModelsList } from './model-fetch.js';
 import { handleRelayRequest } from './relay.js';
 import { loadPresets, getPreset, savePresets, classifyCaptureHeaders } from './client-presets.js';
 
-const SETTING_KEYS = ['port', 'bind', 'gateway_token', 'admin_password', 'logging_enabled', 'upstream_proxy', 'upstream_proxy_bypass'];
+const SETTING_KEYS = ['port', 'bind', 'gateway_token', 'admin_password', 'logging_enabled', 'log_out_headers', 'upstream_proxy', 'upstream_proxy_bypass'];
 
 // Custom UA presets saved from the capture page (built-ins stay in presets-data.mjs).
 const CUSTOM_UA_KEY = 'custom_ua_presets';

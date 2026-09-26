@@ -57,6 +57,7 @@ function DetailDialog({ log, onClose }: { log: LogEntry; onClose: () => void }) 
   const usage = detail.usage as UsageInfo | undefined;
   const upstreamModel = typeof detail.upstream_model === 'string' ? detail.upstream_model : '';
   const mapped = upstreamModel && upstreamModel !== log.model;
+  const outHeaders = (detail.out_headers ?? null) as Record<string, string> | null;
   return (
     <Modal title="请求详情" onClose={onClose}>
       <div className="space-y-4 text-sm">
@@ -83,6 +84,19 @@ function DetailDialog({ log, onClose }: { log: LogEntry; onClose: () => void }) 
               <div><dt className="text-xs text-zinc-400">总计</dt><dd className="tabular-nums">{fmtInt(usage?.total_tokens)}</dd></div>
               <div><dt className="text-xs text-zinc-400">缓存 读/写</dt><dd className="tabular-nums">{(usage?.cache_read_input_tokens ?? 0) + '/' + (usage?.cache_creation_input_tokens ?? 0)}</dd></div>
             </dl>
+          </div>
+        )}
+        {outHeaders && Object.keys(outHeaders).length > 0 && (
+          <div className="rounded-xl border border-black/[0.06] p-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">出站请求头（实际发出，明文）</div>
+            <div className="overflow-hidden rounded-lg bg-white ring-1 ring-black/[0.06]">
+              {Object.entries(outHeaders).map(([k, v]) => (
+                <div key={k} className="flex gap-3 border-b border-black/[0.04] px-3 py-1.5 last:border-b-0">
+                  <span className="w-44 shrink-0 truncate font-mono text-[11px] text-zinc-400" title={k}>{k}</span>
+                  <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-zinc-700">{String(v)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {log.error && (

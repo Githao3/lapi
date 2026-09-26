@@ -94,6 +94,7 @@ export interface SettingsPayload {
   has_admin_password?: boolean;
   capture_enabled?: string;
   logging_enabled?: string;
+  log_out_headers?: string;
   resolved_port?: string;
   upstream_proxy?: string;
   upstream_proxy_bypass?: string;

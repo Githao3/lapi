@@ -15,6 +15,7 @@ export default function Settings() {
   const [clearToken, setClearToken] = useState(false);
   const [clearAdmin, setClearAdmin] = useState(false);
   const [logging, setLogging] = useState(true);
+  const [logOutHeaders, setLogOutHeaders] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [msg, setMsg] = useState('');
@@ -30,6 +31,7 @@ export default function Settings() {
       setBind(c.bind ?? '127.0.0.1');
       setToken(c.gateway_token ?? '');
       setLogging(c.logging_enabled === '1');
+      setLogOutHeaders(c.log_out_headers === '1');
       setUpstreamProxy(c.upstream_proxy ?? '');
       setUpstreamBypass(c.upstream_proxy_bypass ?? '');
     }).catch(() => {});
@@ -39,7 +41,7 @@ export default function Settings() {
 
   const save = async () => {
     try {
-      await api.putConfig({ port, bind, logging_enabled: logging ? '1' : '0' });
+      await api.putConfig({ port, bind, logging_enabled: logging ? '1' : '0', log_out_headers: logOutHeaders ? '1' : '0' });
       const nonLocal = bind !== '127.0.0.1' && bind !== 'localhost' && bind !== '::1';
       const missing = !token.trim() || !(cfg?.has_admin_password || adminPw.trim());
       const networkChanged = port !== (cfg?.port ?? '8787') || bind !== (cfg?.bind ?? '127.0.0.1');
@@ -95,9 +97,14 @@ export default function Settings() {
           <Field label="绑定地址" hint={BIND_HINT}>
             <input className={inputCls} value={bind} onChange={(e) => setBind(e.target.value)} placeholder="127.0.0.1" />
           </Field>
-          <label className="mb-4 flex items-center gap-2 text-sm text-zinc-700">
+          <label className="mb-3 flex items-center gap-2 text-sm text-zinc-700">
             <input type="checkbox" checked={logging} onChange={(e) => setLogging(e.target.checked)} />
             记录中继日志
+          </label>
+          <label className="mb-4 flex items-center gap-2 text-sm text-zinc-700">
+            <input type="checkbox" checked={logOutHeaders} onChange={(e) => setLogOutHeaders(e.target.checked)} />
+            转发日志记录出站请求头
+            <span className="text-xs text-zinc-400">（默认只在请求失败时记录；打开后所有请求都记，含凭证，调试用）</span>
           </label>
           <div className="flex items-center gap-3">
             <Button variant="primary" onClick={save}>保存</Button>

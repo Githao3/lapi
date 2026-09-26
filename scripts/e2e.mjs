@@ -649,6 +649,24 @@ try {
       hit = lastHit('claude-sonnet-4-5');
       ok(hit.headers['x-session-id'] === 'ses_capture_1', 'U fill backfills the pinned session, got ' + hit.headers['x-session-id']);
 
+      // 出站头记录：失败必记（含档案三态的效果）；开关打开后成功也记
+      await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'flaky-500', messages: [{ role: 'user', content: 'hi' }] }) });
+      const failResp = await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'flaky-500', messages: [{ role: 'user', content: 'hi' }] }) });
+      const sum = await (await fetch(base + '/api/logs/summary')).json();
+      const failLogs = (await (await fetch(base + '/api/logs?limit=10')).json());
+      const failLog = failLogs.find((l) => l.model === 'flaky-500');
+      ok(failLog && Array.isArray(failLog.detail?.attempts) && failLog.detail.attempts.length >= 1, 'U fail log carries attempts');
+      ok(failLog.detail.attempts.some((a) => a.out_headers && a.out_headers['user-agent']), 'U failed attempts carry outbound headers');
+      ok(failLog.detail.out_headers && failLog.detail.out_headers['user-agent'], 'U failed log carries final outbound headers');
+      ok(failLog.detail.out_headers.authorization === 'Bearer sk-flaky', 'U outbound headers show the channel key (plaintext by design)');
+
+      await fetch(base + '/api/config', { method: 'PUT', headers, body: JSON.stringify({ log_out_headers: '1' }) });
+      await fetch(base + '/v1/messages', { method: 'POST', headers, body: JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] }) });
+      const okLogs = (await (await fetch(base + '/api/logs?limit=5')).json());
+      const okLog = okLogs.find((l) => l.model === 'claude-sonnet-4-5' && !l.error);
+      ok(okLog && okLog.detail?.out_headers && okLog.detail.out_headers['user-agent'], 'U success log records outbound headers when toggled');
+      await fetch(base + '/api/config', { method: 'PUT', headers, body: JSON.stringify({ log_out_headers: '0' }) });
+
       // 收尾：恢复渠道 UA override，删除预设
       await fetch(base + '/api/channels/' + ch.id, {
         method: 'PUT', headers,

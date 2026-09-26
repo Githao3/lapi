@@ -76,6 +76,7 @@ const DEFAULTS = {
   admin_password: '',
   capture_enabled: '0',
   logging_enabled: '1',
+  log_out_headers: '0',
   upstream_proxy: '',
   upstream_proxy_bypass: '',
 };

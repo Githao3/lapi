@@ -48,6 +48,7 @@ const channels = listChannels();
  let clientError = '';
  let lastUsage = null;
  let lastUpstreamModel = '';
+ let lastOutHeaders = null;
  const attempts = [];
  for (let attempt =   0; attempt < 2; attempt++) {
     const c = pickWeightedChannel(candidates);
@@ -57,6 +58,7 @@ const channels = listChannels();
     if (out.attempt) attempts.push(out.attempt);
     if (out.usage) lastUsage = out.usage;
     if (out.upstreamModel) lastUpstreamModel = out.upstreamModel;
+    if (out.out_headers) lastOutHeaders = out.out_headers;
     if (out.clientError) {
       clientError = out.clientError;
       lastError = '';
@@ -82,7 +84,7 @@ const channels = listChannels();
     const payload = errorPayload(protocol, 'relay failed: ' + lastError);
     res.status(502).set('content-type', 'application/json').send(JSON.stringify(payload));
   }
- logRelay(started, req, res, protocol, attemptChannel, model, lastError, attempts, clientError, lastUsage, lastUpstreamModel);
+ logRelay(started, req, res, protocol, attemptChannel, model, lastError, attempts, clientError, lastUsage, lastUpstreamModel, lastOutHeaders);
 }
 
 // ---------- helpers ----------
@@ -153,11 +155,11 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
     if (clientAbort?.aborted) {
       return { done: true, retryable: false, error: 'client aborted', sentBytes: false };
     }
-    return { done: false, retryable: true, error: String(e && e.message ? e.message : e), sentBytes: false, attempt: { channel: c.name, status: null, error: String(e && e.message ? e.message : e) } };
+    return { done: false, retryable: true, error: String(e && e.message ? e.message : e), sentBytes: false, attempt: { channel: c.name, status: null, error: String(e && e.message ? e.message : e), out_headers: headers } };
   }
   if (resp.status >=500 || (resp.status === 429 && resp.headers.get('retry-after'))) {
     const errText = await resp.text().catch(() => '');
-    return { done: false, retryable: true, error: 'upstream status ' + resp.status, sentBytes: false, attempt: { channel: c.name, status: resp.status, error: maskSecrets(errText, c) } };
+    return { done: false, retryable: true, error: 'upstream status ' + resp.status, sentBytes: false, out_headers: headers, attempt: { channel: c.name, status: resp.status, error: maskSecrets(errText, c), out_headers: headers } };
   }
   if (resp.status >=400) {
     const raw = await resp.text().catch(() => '');
@@ -173,7 +175,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
     res.status(resp.status);
     res.set('content-type', 'application/json');
     res.send(out);
-    return { done: true, retryable: false, error: '', sentBytes: false, attempt: { channel: c.name, status: resp.status, error: maskSecrets(raw, c) } };
+    return { done: true, retryable: false, error: '', sentBytes: false, out_headers: headers, attempt: { channel: c.name, status: resp.status, error: maskSecrets(raw, c), out_headers: headers } };
   }
   // pipe through (streaming or buffered)
   let sentBytes = false;
@@ -252,7 +254,7 @@ async function forwardOnce(req, res, c, protocol, kind, body, clientAbort) {
     }
     res.end();
   }
-  return { done: true, retryable: false, error: '', sentBytes, usage, upstreamModel };
+  return { done: true, retryable: false, error: '', sentBytes, usage, upstreamModel, out_headers: headers };
 }
 function applyModelMapping(body, mapping) {
   if (!mapping) return body;
@@ -263,7 +265,7 @@ function applyModelMapping(body, mapping) {
  return body;
 }
 
-function logRelay(started, req, res, protocol, channel, model, lastError, attempts, clientError, usage, upstreamModel) {
+function logRelay(started, req, res, protocol, channel, model, lastError, attempts, clientError, usage, upstreamModel, outHeaders) {
   if (getSetting('logging_enabled') !== '1') return;
  if (!channel) {
     insertLog({
@@ -288,7 +290,7 @@ function logRelay(started, req, res, protocol, channel, model, lastError, attemp
     status: res.statusCode ?? null,
     ms: Date.now() - started,
     error: lastError,
-    detail: buildRelayDetail(attempts, clientError, usage, upstreamModel),
+    detail: buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, lastError),
   });
 }
 
@@ -302,12 +304,16 @@ function maskSecrets(text, channel) {
   return t;
 }
 
-function buildRelayDetail(attempts, clientError, usage, upstreamModel) {
+function buildRelayDetail(attempts, clientError, usage, upstreamModel, outHeaders, lastError) {
   const detail = {};
   if (attempts && attempts.length) detail.attempts = attempts;
   if (clientError) detail.clientError = clientError;
   if (usage) detail.usage = usage;
   if (upstreamModel) detail.upstream_model = upstreamModel;
+  // 出站头快照：失败请求总是记录（排障刚需）；设置打开后成功请求也记录
+  if (outHeaders && (lastError || clientError || getSetting('log_out_headers') === '1')) {
+    detail.out_headers = outHeaders;
+  }
   return detail;
 }
 
