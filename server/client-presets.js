@@ -22,7 +22,13 @@ const EXCLUDED_NAMES = new Set(['accept-language', 'anthropic-beta']);
 export function loadPresets() {
   try {
     const arr = JSON.parse(getSetting(KEY) || '[]');
-    return Array.isArray(arr) ? arr : [];
+    const list = Array.isArray(arr) ? arr : [];
+    // 旧档案（strict 字段诞生前创建的）没有该字段：读取时归一化为开启，
+    // 否则历史档案会一直处于"叠加模式"，指纹泄漏排障会非常困惑。
+    for (const p of list) {
+      if (p && typeof p === 'object') p.strict = p.strict !== false;
+    }
+    return list;
   } catch {
     return [];
   }
