@@ -15,6 +15,8 @@ import {
   logsSummary,
   countLogsBefore,
   deleteLogsBefore,
+  clearChannelPresetRefs,
+  renameChannelPresetRefs,
 } from './db.js';
 import { listPresets, presetToChannel } from './presets.js';
 import { captureIsEnabled } from './capture.js';
@@ -274,6 +276,7 @@ export function attachCrud(app) {
     preset.name = name;
     preset.headers = sanitizeClientHeaders(req.body?.headers);
     savePresets(list);
+    if (name !== target) renameChannelPresetRefs(target, name);
     res.json({ ok: true, preset });
   });
 
@@ -282,7 +285,9 @@ export function attachCrud(app) {
     const list = loadPresets();
     const next = list.filter((p) => p.name !== target);
     savePresets(next);
-    res.json({ ok: true, removed: next.length !== list.length });
+    // 引用该预设的渠道同步清空，避免留下幽灵引用
+    const cleared = clearChannelPresetRefs(target);
+    res.json({ ok: true, removed: next.length !== list.length, cleared_channels: cleared });
   });
 
   app.get('/api/stats', (req, res) => {

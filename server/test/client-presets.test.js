@@ -118,6 +118,19 @@ test("applyClientPreset: fixed 覆盖、fill 缺了才补、drop 删除", () => 
   assert.ok(!("x-request-id" in out), "drop 移除出站头");
 });
 
+test("applyClientPreset: fill 的补位值为空时宁可不发", () => {
+  const out = { accept: "application/json" };
+  applyClientPreset(out, {
+    name: "p",
+    headers: [
+      { name: "x-session-id", value: "", mode: "fill" },
+      { name: "x-session-affinity", value: "", mode: "fill" },
+    ],
+  });
+  assert.ok(!("x-session-id" in out), "空头不该被发送");
+  assert.ok(!("x-session-affinity" in out));
+});
+
 test("applyClientPreset: 管辖头（host/认证/长度）永不被档案触碰", () => {
   const out = {
     host: "api.fengwind.com",

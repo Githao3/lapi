@@ -333,6 +333,10 @@ export default function Channels() {
                     {clientPresets.map((p) => (
                       <option key={p.name} value={p.name}>{p.name}（{p.headers.length} 个头）</option>
                     ))}
+                    {/* 幽灵引用（预设已被删除）也要如实显示，避免 UI 与实际状态不符 */}
+                    {editing.client_preset && !clientPresets.some((p) => p.name === editing.client_preset) && (
+                      <option value={editing.client_preset}>{editing.client_preset}（预设已删除，点清除恢复）</option>
+                    )}
                   </select>
                   {editing.client_preset && <Button variant="subtle" onClick={() => set({ client_preset: '' })}>清除</Button>}
                 </div>

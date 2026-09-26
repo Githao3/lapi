@@ -189,7 +189,8 @@ export function applyClientPreset(out, preset) {
       out[name] = value;
     } else if (h?.mode === 'fill') {
       const cur = out[name];
-      if (cur == null || cur === '') out[name] = value;
+      // 缺了才补；补位的值是空串时宁可不发，也不发一个空头
+      if ((cur == null || cur === '') && value !== '') out[name] = value;
     } else if (h?.mode === 'drop') {
       delete out[name];
     }

@@ -36,7 +36,7 @@ export default function Presets() {
   };
 
   const removeClientPreset = async (name: string) => {
-    if (!window.confirm(`删除客户端预设「${name}」？引用它的渠道将回落为不伪装。`)) return;
+    if (!window.confirm(`删除客户端预设「${name}」？引用它的渠道会自动清空引用（回落为不伪装）。`)) return;
     try {
       await api.deleteClientPreset(name);
       loadClientPresets();

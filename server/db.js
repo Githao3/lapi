@@ -185,6 +185,20 @@ export function deleteChannel(id) {
   db.prepare('DELETE FROM channels WHERE id = ?').run(id);
 }
 
+// ---------- client preset references ----------
+
+// Deleting a preset must not leave channels pointing at a ghost: clear refs.
+export function clearChannelPresetRefs(name) {
+  const r = db.prepare("UPDATE channels SET client_preset = '' WHERE client_preset = ?").run(String(name));
+  return Number(r.changes);
+}
+
+// Renaming a preset keeps every channel reference pointing at the new name.
+export function renameChannelPresetRefs(oldName, newName) {
+  const r = db.prepare('UPDATE channels SET client_preset = ? WHERE client_preset = ?').run(String(newName), String(oldName));
+  return Number(r.changes);
+}
+
 // ---------- logs ----------
 
 export function insertLog(entry) {
