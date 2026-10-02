@@ -340,7 +340,8 @@ export default function Channels() {
                         }
                         overrides[h.name] = h.value;
                       }
-                      set({ client_preset: v, user_agent_override: ua, header_overrides: { ...editing.header_overrides, ...overrides } });
+                      // 选中档案 = 按该档案整体替换额外头（避免上一个档案的行残留）
+                      set({ client_preset: v, user_agent_override: ua, header_overrides: overrides });
                     }}
                   >
                     <option value="">不使用客户端档案</option>
