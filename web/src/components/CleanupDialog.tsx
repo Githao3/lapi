@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, fmtTs } from '../api';
 import type { LogSummary } from '../types';
-import { Button, Modal, Note } from './ui';
+import { Button, Dropdown, Modal, Note } from './ui';
 
 export type CleanupKind = 'relay' | 'capture';
 
@@ -78,15 +78,11 @@ export function CleanupDialog({ kind, onClose, onDone }: { kind: CleanupKind; on
         </div>
         <label className="block">
           <span className="mb-1.5 block text-xs font-medium text-zinc-600">清理范围</span>
-          <select
-            className="w-full cursor-pointer rounded-lg border border-black/[0.08] bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value))}
-          >
-            {OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+          <Dropdown
+            value={String(days)}
+            onChange={(v) => setDays(Number(v))}
+            options={OPTIONS.map((o) => ({ value: String(o.value), label: o.label }))}
+          />
         </label>
         <Note tone="warn">
           将删除 {fmtTs(Date.now() - days * 86400000)} 之前的 <b>{(estimate?.older ?? 0).toLocaleString()}</b> 条{label.noun}

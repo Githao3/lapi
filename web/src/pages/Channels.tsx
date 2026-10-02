@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Channel, AuthMode, ClientPreset } from '../types';
-import { Card, Button, Badge, Field, Select, Modal, Note, EmptyState, PageHeader, inputCls } from '../components/ui';
+import { Card, Button, Badge, Field, Select, Dropdown, Modal, Note, EmptyState, PageHeader, inputCls } from '../components/ui';
 
 const DRAFT_KEY = 'lapi-draft';
 
@@ -297,16 +297,12 @@ export default function Channels() {
             <div className="md:col-span-2">
               <Field label="UA 伪装预设" hint="内置 cc-switch 预设 + 捕获页保存的 agent UA；是否使用由你显式选择。">
                 <div className="flex gap-2">
-                  <select
-                    className={inputCls}
+                  <Dropdown
                     value=""
-                    onChange={(e) => { if (e.target.value) set({ user_agent_override: e.target.value }); }}
-                  >
-                    <option value="">选择预设…</option>
-                    {uaPresets.map((u) => (
-                      <option key={u} value={u}>{u}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => { if (v) set({ user_agent_override: v }); }}
+                    placeholder="选择预设…"
+                    options={[{ value: '', label: '选择预设…' }, ...uaPresets.map((u) => ({ value: u, label: u }))]}
+                  />
                   {editing.user_agent_override && <Button variant="subtle" onClick={() => set({ user_agent_override: '' })}>清除</Button>}
                 </div>
               </Field>
@@ -317,11 +313,18 @@ export default function Channels() {
                 hint="选中即把档案整组头导入上方 UA 覆盖和额外头覆盖（含 session 类，值为捕获时的值），逐头可改——渠道值优先；删除某行则该头回落到档案语义（fill 补位）。"
               >
                 <div className="flex gap-2">
-                  <select
-                    className={inputCls}
+                  <Dropdown
                     value={editing.client_preset}
-                    onChange={(e) => {
-                      const v = e.target.value;
+                    placeholder="不使用客户端档案"
+                    options={[
+                      { value: '', label: '不使用客户端档案' },
+                      ...clientPresets.map((p) => ({ value: p.name, label: `${p.name}（${p.headers.length} 个头）` })),
+                      // 幽灵引用（预设已被删除）也要如实显示，避免 UI 与实际状态不符
+                      ...(editing.client_preset && !clientPresets.some((p) => p.name === editing.client_preset)
+                        ? [{ value: editing.client_preset, label: `${editing.client_preset}（预设已删除，点清除恢复）` }]
+                        : []),
+                    ]}
+                    onChange={(v) => {
                       const p = clientPresets.find((x) => x.name === v);
                       if (!p) {
                         set({ client_preset: '' });
@@ -343,16 +346,7 @@ export default function Channels() {
                       // 选中档案 = 按该档案整体替换额外头（避免上一个档案的行残留）
                       set({ client_preset: v, user_agent_override: ua, header_overrides: overrides });
                     }}
-                  >
-                    <option value="">不使用客户端档案</option>
-                    {clientPresets.map((p) => (
-                      <option key={p.name} value={p.name}>{p.name}（{p.headers.length} 个头）</option>
-                    ))}
-                    {/* 幽灵引用（预设已被删除）也要如实显示，避免 UI 与实际状态不符 */}
-                    {editing.client_preset && !clientPresets.some((p) => p.name === editing.client_preset) && (
-                      <option value={editing.client_preset}>{editing.client_preset}（预设已删除，点清除恢复）</option>
-                    )}
-                  </select>
+                  />
                   {editing.client_preset && <Button variant="subtle" onClick={() => set({ client_preset: '' })}>清除</Button>}
                 </div>
               </Field>

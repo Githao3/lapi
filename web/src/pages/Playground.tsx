@@ -5,7 +5,7 @@ import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
 import { api } from '../api';
 import type { ModelsCatalogEntry } from '../types';
-import { Button, Note } from '../components/ui';
+import { Button, Dropdown, Note } from '../components/ui';
 
 type ChatRole = 'user' | 'assistant' | 'error';
 interface ChatItem {
@@ -305,20 +305,19 @@ export default function Playground() {
     <div className="flex h-full min-h-0 flex-col">
       {/* 顶栏：模型选择 + 清空 + 参数开关 */}
       <div className="flex items-center justify-between gap-3 pb-3">
-        <div className="relative">
-          <select
-            className="appearance-none rounded-full border border-black/[0.08] bg-white py-1.5 pl-4 pr-8 text-[13px] font-medium text-zinc-700 shadow-xs outline-none transition hover:border-zinc-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+        <div className="min-w-0">
+          <Dropdown
             value={model}
-            onChange={(e) => setModel(e.target.value)}
-          >
-            {models.length === 0 && <option value="">暂无可用模型</option>}
-            {models.map((m) => (
-              <option key={m.model} value={m.model}>
-                {m.model}
-              </option>
-            ))}
-          </select>
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400">▾</span>
+            onChange={setModel}
+            placeholder="暂无可用模型"
+            disabled={models.length === 0}
+            buttonClassName="inline-flex items-center gap-2.5 rounded-full border border-black/[0.08] bg-white py-1.5 pl-4 pr-3 text-[13px] font-medium text-zinc-700 shadow-xs outline-none transition hover:border-zinc-300"
+            popupClassName="w-max max-w-[70vw]"
+            options={[
+              ...models.map((m) => ({ value: m.model, label: m.model })),
+              ...(models.length === 0 ? [{ value: '', label: '暂无可用模型' }] : []),
+            ]}
+          />
         </div>
         <div className="flex items-center gap-2">
           {items.length > 0 && (

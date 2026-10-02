@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 
 const btnBase =
   'inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-medium transition-all duration-150 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500';
@@ -82,24 +82,140 @@ export function Field(props: { label: string; children: ReactNode; hint?: string
 export const inputCls =
   'w-full rounded-lg border border-black/[0.08] bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10';
 
+// ---------- 自研下拉（替代原生 select：弹层样式与整体 UI 一致） ----------
+
+export interface DropdownOption {
+  value: string;
+  label: string;
+}
+
+const dropdownBtnBase =
+  'flex w-full items-center justify-between gap-2 rounded-lg border bg-white text-left text-sm shadow-xs outline-none transition disabled:pointer-events-none disabled:opacity-45';
+const dropdownBtnIdle = 'border-black/[0.08] text-zinc-900 hover:border-zinc-300';
+const dropdownBtnOpen = 'border-indigo-500 ring-4 ring-indigo-500/10';
+
+export function Dropdown(props: {
+  value: string;
+  onChange: (v: string) => void;
+  options: DropdownOption[];
+  placeholder?: string;
+  disabled?: boolean;
+  /** 覆盖按钮默认样式（如测试场的胶囊形）；宽度仍由外层容器控制 */
+  buttonClassName?: string;
+  /** 附加到弹层（如 w-max） */
+  popupClassName?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(-1);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        return;
+      }
+      const n = props.options.length;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHi((h) => (h < 0 ? (e.key === 'ArrowDown' ? 0 : n - 1) : e.key === 'ArrowDown' ? (h + 1) % n : (h - 1 + n) % n));
+      }
+      if (e.key === 'Enter' && hi >= 0 && props.options[hi]) {
+        props.onChange(props.options[hi].value);
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, hi, props.options, props.onChange]);
+
+  const current = props.options.find((o) => o.value === props.value);
+  const label = current ? current.label : (props.placeholder ?? '请选择…');
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        disabled={props.disabled}
+        onClick={() => {
+          setOpen(!open);
+          setHi(-1);
+        }}
+        className={
+          (props.buttonClassName ?? dropdownBtnBase + ' px-3 py-2') +
+          ' ' +
+          (open ? dropdownBtnOpen : dropdownBtnIdle)
+        }
+      >
+        <span className={'min-w-0 flex-1 truncate ' + (current ? '' : 'text-zinc-400')}>{label}</span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={'shrink-0 text-zinc-400 transition-transform duration-150' + (open ? ' rotate-180' : '')}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          className={
+            'absolute left-0 z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-black/[0.08] bg-white py-1 shadow-[0_12px_32px_-8px_rgba(16,24,40,0.18)] ' +
+            (props.popupClassName ?? '')
+          }
+        >
+          {props.options.length === 0 && <div className="px-3 py-2 text-xs text-zinc-400">暂无选项</div>}
+          {props.options.map((o, i) => (
+            <button
+              type="button"
+              key={o.value}
+              onMouseEnter={() => setHi(i)}
+              onClick={() => {
+                props.onChange(o.value);
+                setOpen(false);
+              }}
+              className={
+                'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm transition-colors ' +
+                (i === hi ? 'bg-zinc-100 ' : '') +
+                (o.value === props.value ? 'font-medium text-indigo-600' : 'text-zinc-700')
+              }
+            >
+              <span className="min-w-0 flex-1 truncate" title={o.label}>
+                {o.label}
+              </span>
+              {o.value === props.value && (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 保留原 API：内部换成自研下拉
 export function Select(props: {
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
 }) {
-  return (
-    <select
-      value={props.value}
-      onChange={(e) => props.onChange(e.target.value)}
-      className={inputCls + ' cursor-pointer'}
-    >
-      {props.options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
+  return <Dropdown value={props.value} onChange={props.onChange} options={props.options} />;
 }
 
 export function Badge(props: { children: ReactNode; tone?: 'neutral' | 'cyan' | 'green' | 'amber' }) {

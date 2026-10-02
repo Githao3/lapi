@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 import type { ClientPreset, ClientPresetHeader } from '../types';
-import { Button, Modal, Note, inputCls } from './ui';
+import { Button, Dropdown, Modal, Note, inputCls } from './ui';
 
 type Row = ClientPresetHeader;
 
@@ -102,21 +102,17 @@ export function ClientPresetEditor(props: {
               {rows.map((r, i) => (
                 <tr key={i} className="border-b border-black/[0.04] last:border-b-0">
                   <td className="px-2 py-1.5">
-                    <input className="w-full rounded-md border border-black/[0.08] px-2 py-1 font-mono text-[11px] outline-none focus:border-indigo-500" value={r.name} onChange={(e) => setRow(i, { name: e.target.value })} />
+                    <input className={inputCls + ' font-mono text-xs'} value={r.name} onChange={(e) => setRow(i, { name: e.target.value })} />
                   </td>
                   <td className="px-2 py-1.5">
-                    <input className="w-full rounded-md border border-black/[0.08] px-2 py-1 font-mono text-[11px] outline-none focus:border-indigo-500" value={r.value} onChange={(e) => setRow(i, { value: e.target.value })} />
+                    <input className={inputCls + ' font-mono text-xs'} value={r.value} onChange={(e) => setRow(i, { value: e.target.value })} />
                   </td>
                   <td className="px-2 py-1.5">
-                    <select
-                      className="w-full cursor-pointer rounded-md border border-black/[0.08] bg-white px-2 py-1 text-[11px] outline-none focus:border-indigo-500"
+                    <Dropdown
                       value={r.mode}
-                      onChange={(e) => setRow(i, { mode: e.target.value as Row['mode'] })}
-                    >
-                      {(Object.keys(MODE_LABELS) as Row['mode'][]).map((m) => (
-                        <option key={m} value={m}>{MODE_LABELS[m]}</option>
-                      ))}
-                    </select>
+                      onChange={(m) => setRow(i, { mode: m as Row['mode'] })}
+                      options={(Object.keys(MODE_LABELS) as Row['mode'][]).map((m) => ({ value: m, label: MODE_LABELS[m] }))}
+                    />
                   </td>
                   <td className="px-2 py-1.5 text-center">
                     <button onClick={() => setRows((prev) => prev.filter((_, idx) => idx !== i))} className="text-zinc-400 transition hover:text-rose-600" title="删除行">✕</button>
